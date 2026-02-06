@@ -13,7 +13,7 @@ new_sqlite_classes = ["RecipeRoom"]
 
 [[d1_databases]]
 binding = "DB"
-database_name = "recipe-box-db"
+database_name = "recipe-box2-db"
 database_id = "YOUR_D1_DATABASE_ID_HERE"
 
 [vars]
