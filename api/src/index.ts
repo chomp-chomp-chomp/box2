@@ -1,5 +1,3 @@
-import { DurableObjectNamespace, Request as WorkerRequest } from '@cloudflare/workers-types';
-
 export { RecipeRoom } from './durable-object';
 
 export interface Env {
@@ -38,7 +36,7 @@ function errorResponse(message: string, status = 400): Response {
   return jsonResponse({ error: message }, status);
 }
 
-function requireAdminAuth(request: WorkerRequest, env: Env): void {
+function requireAdminAuth(request: Request, env: Env): void {
   const authHeader = request.headers.get('Authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     throw new Error('Unauthorized');
@@ -65,7 +63,7 @@ function generateSalt(): string {
 }
 
 export default {
-  async fetch(request: WorkerRequest, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if (request.method === 'OPTIONS') {
