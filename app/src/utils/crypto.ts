@@ -78,6 +78,9 @@ export interface MessagePayload {
   text: string;
   displayName: string;
   clientTs: number;
+  // Signing fields (optional for backward compat with unsigned messages)
+  signatureB64?: string;
+  senderPublicKeyJwk?: JsonWebKey;
 }
 
 // Build AAD (Additional Authenticated Data): room_id + version + msg_id
@@ -163,4 +166,62 @@ export function generateMsgId(): string {
     .join('')
     .slice(0, 12);
   return `${timestamp}${random}`.toUpperCase();
+}
+
+// --- ECDSA Message Signing ---
+
+const ECDSA_ALGO: EcKeyGenParams = { name: 'ECDSA', namedCurve: 'P-256' };
+const ECDSA_SIGN_ALGO: EcdsaParams = { name: 'ECDSA', hash: 'SHA-256' };
+
+// Generate an ECDSA P-256 keypair
+export async function generateSigningKeypair(): Promise<CryptoKeyPair> {
+  return crypto.subtle.generateKey(ECDSA_ALGO, true, ['sign', 'verify']);
+}
+
+// Export a public CryptoKey as JWK
+export async function exportPublicKeyJwk(key: CryptoKey): Promise<JsonWebKey> {
+  return crypto.subtle.exportKey('jwk', key);
+}
+
+// Import a JWK as a public CryptoKey for verification
+export async function importPublicKeyJwk(jwk: JsonWebKey): Promise<CryptoKey> {
+  return crypto.subtle.importKey('jwk', jwk, ECDSA_ALGO, true, ['verify']);
+}
+
+// Build the canonical signing payload: text|displayName|clientTs|msgId
+export function buildSigningPayload(
+  text: string,
+  displayName: string,
+  clientTs: number,
+  msgId: string
+): Uint8Array {
+  const encoder = new TextEncoder();
+  return encoder.encode(`${text}|${displayName}|${clientTs}|${msgId}`);
+}
+
+// Sign a message digest with the private key
+export async function signMessage(
+  privateKey: CryptoKey,
+  text: string,
+  displayName: string,
+  clientTs: number,
+  msgId: string
+): Promise<string> {
+  const data = buildSigningPayload(text, displayName, clientTs, msgId);
+  const signature = await crypto.subtle.sign(ECDSA_SIGN_ALGO, privateKey, toArrayBuffer(data));
+  return bytesToBase64(new Uint8Array(signature));
+}
+
+// Verify a message signature with a public key
+export async function verifySignature(
+  publicKey: CryptoKey,
+  signatureB64: string,
+  text: string,
+  displayName: string,
+  clientTs: number,
+  msgId: string
+): Promise<boolean> {
+  const data = buildSigningPayload(text, displayName, clientTs, msgId);
+  const signature = base64ToBytes(signatureB64);
+  return crypto.subtle.verify(ECDSA_SIGN_ALGO, publicKey, toArrayBuffer(signature), toArrayBuffer(data));
 }

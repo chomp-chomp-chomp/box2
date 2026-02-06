@@ -8,7 +8,20 @@ import {
   decryptPayload,
   generateMsgId,
   MessagePayload,
+  generateSigningKeypair,
+  exportPublicKeyJwk,
+  importPublicKeyJwk,
+  signMessage,
+  verifySignature,
 } from '../utils/crypto';
+import {
+  getOwnKeypair,
+  saveOwnKeypair,
+  getTrustedKey,
+  saveTrustedKey,
+  jwkEqual,
+  TrustStatus,
+} from '../utils/keyStore';
 
 interface DecryptedMessage {
   msgId: string;
@@ -18,6 +31,41 @@ interface DecryptedMessage {
   createdAt: string;
   isOwn: boolean;
   error?: boolean;
+  trustStatus: TrustStatus;
+}
+
+function TrustIndicator({ status }: { status: TrustStatus }) {
+  switch (status) {
+    case 'verified':
+      return (
+        <span className="trust-indicator trust-verified" title="Verified sender (key matches)">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </span>
+      );
+    case 'new':
+      return (
+        <span className="trust-indicator trust-new" title="New sender (key stored on first use)">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+            <circle cx="5" cy="5" r="3" fill="currentColor"/>
+          </svg>
+        </span>
+      );
+    case 'mismatch':
+      return (
+        <span className="trust-indicator trust-mismatch" title="Warning: sender key changed!">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M6 2L1 10.5H11L6 2Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+            <line x1="6" y1="5.5" x2="6" y2="7.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            <circle cx="6" cy="9" r="0.6" fill="currentColor"/>
+          </svg>
+        </span>
+      );
+    case 'unsigned':
+    default:
+      return null;
+  }
 }
 
 export default function Room() {
@@ -36,11 +84,51 @@ export default function Room() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const signingKeyRef = useRef<{ privateKey: CryptoKey; publicKeyJwk: JsonWebKey } | null>(null);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Initialize signing keypair when displayName and roomId are set
+  useEffect(() => {
+    if (!roomId || !displayName || showNameModal) return;
+
+    const initKeypair = async () => {
+      try {
+        const stored = await getOwnKeypair(roomId, displayName);
+        if (stored) {
+          // Re-import private key from stored JWK
+          const privateKey = await crypto.subtle.importKey(
+            'jwk',
+            stored.privateKeyJwk,
+            { name: 'ECDSA', namedCurve: 'P-256' },
+            false,
+            ['sign']
+          );
+          signingKeyRef.current = {
+            privateKey,
+            publicKeyJwk: stored.publicKeyJwk,
+          };
+        } else {
+          // Generate new keypair
+          const keypair = await generateSigningKeypair();
+          const publicKeyJwk = await exportPublicKeyJwk(keypair.publicKey);
+          const privateKeyJwk = await crypto.subtle.exportKey('jwk', keypair.privateKey);
+          await saveOwnKeypair(roomId, displayName, { publicKeyJwk, privateKeyJwk });
+          signingKeyRef.current = {
+            privateKey: keypair.privateKey,
+            publicKeyJwk,
+          };
+        }
+      } catch (err) {
+        console.error('Failed to initialize signing keypair:', err);
+      }
+    };
+
+    initKeypair();
+  }, [roomId, displayName, showNameModal]);
 
   // Load room and credentials
   useEffect(() => {
@@ -84,7 +172,7 @@ export default function Room() {
         setCryptoKey(key);
 
         // Load history
-        await loadHistory(roomId, roomInfo, key);
+        await loadHistory(roomId, key);
 
         setLoading(false);
       } catch (err) {
@@ -97,21 +185,71 @@ export default function Room() {
     loadRoom();
   }, [roomId, navigate]);
 
+  // Verify signature and check trust store
+  const verifyAndCheckTrust = async (
+    payload: MessagePayload,
+    msgId: string,
+    currentRoomId: string
+  ): Promise<TrustStatus> => {
+    // No signature = legacy unsigned message
+    if (!payload.signatureB64 || !payload.senderPublicKeyJwk) {
+      return 'unsigned';
+    }
+
+    try {
+      // Import the sender's public key from the payload
+      const senderKey = await importPublicKeyJwk(payload.senderPublicKeyJwk);
+
+      // Verify the signature
+      const valid = await verifySignature(
+        senderKey,
+        payload.signatureB64,
+        payload.text,
+        payload.displayName,
+        payload.clientTs,
+        msgId
+      );
+
+      if (!valid) {
+        return 'mismatch';
+      }
+
+      // Check trust store
+      const trusted = await getTrustedKey(currentRoomId, payload.displayName);
+
+      if (!trusted) {
+        // First time seeing this user — store key (TOFU)
+        await saveTrustedKey(currentRoomId, payload.displayName, payload.senderPublicKeyJwk);
+        return 'new';
+      }
+
+      if (jwkEqual(trusted.publicKeyJwk, payload.senderPublicKeyJwk)) {
+        return 'verified';
+      }
+
+      // Key mismatch — possible impersonation
+      return 'mismatch';
+    } catch (err) {
+      console.error('Signature verification failed:', err);
+      return 'mismatch';
+    }
+  };
+
   // Load message history
   const loadHistory = async (
-    roomId: string,
-    roomInfo: RoomInfo,
+    currentRoomId: string,
     key: CryptoKey
   ) => {
     try {
-      const { messages: historyMessages } = await getHistory(roomId, {
+      const roomInfo = await getRoom(currentRoomId);
+      const { messages: historyMessages } = await getHistory(currentRoomId, {
         limit: 50,
         version: roomInfo.version,
       });
 
       const decrypted = await Promise.all(
         historyMessages.map(async (msg) => {
-          return decryptMessage(msg, roomId, key);
+          return decryptMessage(msg, currentRoomId, key);
         })
       );
 
@@ -124,18 +262,20 @@ export default function Room() {
   // Decrypt a single message
   const decryptMessage = async (
     msg: HistoryMessage,
-    roomId: string,
+    currentRoomId: string,
     key: CryptoKey
   ): Promise<DecryptedMessage> => {
     try {
       const payload = await decryptPayload(
         key,
-        roomId,
+        currentRoomId,
         msg.version,
         msg.msgId,
         msg.ivB64,
         msg.ciphertextB64
       );
+
+      const trustStatus = await verifyAndCheckTrust(payload, msg.msgId, currentRoomId);
 
       return {
         msgId: msg.msgId,
@@ -143,7 +283,8 @@ export default function Room() {
         text: payload.text,
         clientTs: payload.clientTs,
         createdAt: msg.createdAt,
-        isOwn: false, // Will be updated for own messages
+        isOwn: false,
+        trustStatus,
       };
     } catch {
       return {
@@ -154,6 +295,7 @@ export default function Room() {
         createdAt: msg.createdAt,
         isOwn: false,
         error: true,
+        trustStatus: 'unsigned',
       };
     }
   };
@@ -247,6 +389,18 @@ export default function Room() {
       clientTs,
     };
 
+    // Sign the message if we have a signing key
+    if (signingKeyRef.current) {
+      payload.signatureB64 = await signMessage(
+        signingKeyRef.current.privateKey,
+        text,
+        displayName,
+        clientTs,
+        msgId
+      );
+      payload.senderPublicKeyJwk = signingKeyRef.current.publicKeyJwk;
+    }
+
     try {
       const { ivB64, ciphertextB64 } = await encryptPayload(
         cryptoKey,
@@ -278,6 +432,7 @@ export default function Room() {
           clientTs,
           createdAt: new Date().toISOString(),
           isOwn: true,
+          trustStatus: signingKeyRef.current ? 'verified' : 'unsigned',
         },
       ]);
 
@@ -383,7 +538,10 @@ export default function Room() {
             className={`message ${msg.isOwn ? 'own' : ''}`}
           >
             {!msg.isOwn && (
-              <div className="message-sender">{msg.displayName}</div>
+              <div className="message-sender">
+                {msg.displayName}
+                <TrustIndicator status={msg.trustStatus} />
+              </div>
             )}
             <div className={`message-text ${msg.error ? 'message-error' : ''}`}>
               {msg.text}
