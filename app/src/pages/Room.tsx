@@ -318,11 +318,11 @@ export default function Room() {
           const data = JSON.parse(event.data);
 
           if (data.type === 'error') {
-            console.error('WebSocket error:', data.error);
+            console.error('WebSocket error:', data.message);
             return;
           }
 
-          if (data.type === 'msg') {
+          if (data.type === 'message') {
             // Don't add if we already have this message
             setMessages((prev) => {
               if (prev.some((m) => m.msgId === data.msgId)) {
@@ -413,7 +413,7 @@ export default function Room() {
       // Send via WebSocket
       wsRef.current.send(
         JSON.stringify({
-          type: 'msg',
+          type: 'message',
           msgId,
           version: room.version,
           ivB64,
