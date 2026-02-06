@@ -14,7 +14,7 @@ new_sqlite_classes = ["RecipeRoom"]
 [[d1_databases]]
 binding = "DB"
 database_name = "recipe-box-db"
-database_id = "2deb9d7a-775c-4d4f-a36b-ea5e8c088110"
+database_id = "YOUR_D1_DATABASE_ID_HERE"
 
 [vars]
 ENVIRONMENT = "development"
