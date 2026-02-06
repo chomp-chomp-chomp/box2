@@ -1,0 +1,31 @@
+name = "recipe-box-api"
+main = "api/src/index.ts"
+compatibility_date = "2024-01-01"
+
+[durable_objects]
+bindings = [
+  { name = "RECIPE_ROOM", class_name = "RecipeRoom" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RecipeRoom"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "recipe-box-db"
+database_id = "2deb9d7a-775c-4d4f-a36b-ea5e8c088110"
+
+[vars]
+ENVIRONMENT = "development"
+
+# Rate limiting configuration
+[vars.RATE_LIMIT]
+MAX_CONNECTIONS_PER_IP = 10
+MAX_MESSAGES_PER_MINUTE = 30
+MAX_MESSAGE_SIZE = 16384
+
+# Production environment configuration
+[env.production]
+[env.production.vars]
+ENVIRONMENT = "production"

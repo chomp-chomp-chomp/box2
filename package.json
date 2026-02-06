@@ -1,0 +1,21 @@
+{
+  "name": "recipe-box",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:app\"",
+    "dev:api": "wrangler dev --local --persist-to .wrangler/state",
+    "dev:app": "npm run dev --prefix app",
+    "build": "npm run build --prefix app",
+    "build:api": "wrangler deploy --dry-run",
+    "deploy:api": "wrangler deploy --env production",
+    "deploy:app": "npm run build --prefix app && wrangler pages deploy app/dist --project-name=recipe-box",
+    "db:create": "wrangler d1 create recipe-box-db",
+    "db:migrate": "wrangler d1 execute recipe-box-db --file=./migrations/0001_init.sql",
+    "db:migrate:local": "wrangler d1 execute recipe-box-db --local --file=./migrations/0001_init.sql"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "wrangler": "^3.22.1"
+  }
+}
