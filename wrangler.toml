@@ -1,4 +1,4 @@
-name = "recipe-box-api"
+name = "recipe-box2-api"
 main = "api/src/index.ts"
 compatibility_date = "2024-01-01"
 
