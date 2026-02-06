@@ -2,6 +2,8 @@ name = "recipe-box2-api"
 main = "api/src/index.ts"
 compatibility_date = "2024-01-01"
 
+preview_urls = false
+
 [durable_objects]
 bindings = [
   { name = "RECIPE_ROOM", class_name = "RecipeRoom" }
@@ -14,10 +16,14 @@ new_sqlite_classes = ["RecipeRoom"]
 [[d1_databases]]
 binding = "DB"
 database_name = "recipe-box2-db"
+<<<<<<< claude/add-message-signing-5Jsf9
 database_id = "YOUR_D1_DATABASE_ID_HERE"
+=======
+database_id = "0c5fde8b-199b-4746-94ff-191bc03602f6"
+>>>>>>> main
 
 [vars]
-ENVIRONMENT = "development"
+ENVIRONMENT = "production"
 
 # Rate limiting configuration
 [vars.RATE_LIMIT]
