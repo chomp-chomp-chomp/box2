@@ -143,11 +143,16 @@ export default function Room() {
         return;
       }
 
-      // Get stored credentials
-      const stored = sessionStorage.getItem(`recipe:${roomId}`);
+      // Get stored credentials (check localStorage, fall back to sessionStorage for migration)
+      const stored = localStorage.getItem(`recipe:${roomId}`) || sessionStorage.getItem(`recipe:${roomId}`);
       if (!stored) {
         navigate('/');
         return;
+      }
+
+      // Migrate sessionStorage to localStorage if needed
+      if (!localStorage.getItem(`recipe:${roomId}`) && sessionStorage.getItem(`recipe:${roomId}`)) {
+        localStorage.setItem(`recipe:${roomId}`, stored);
       }
 
       const { passphrase: storedPassphrase } = JSON.parse(stored);
