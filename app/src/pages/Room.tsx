@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, FormEvent } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getRoom, getHistory, getWebSocketUrl, RoomInfo, HistoryMessage } from '../utils/api';
 import { saveRecentRoom } from '../utils/recentRooms';
+import { getCachedMessages, setCachedMessages, appendCachedMessage } from '../utils/messageCache';
 import {
   deriveKeyPBKDF2,
   encryptPayload,
@@ -159,6 +160,18 @@ export default function Room() {
         setShowNameModal(true);
       }
 
+      // Show cached messages immediately while we load fresh data
+      const cached = getCachedMessages(roomId);
+      if (cached.length > 0) {
+        setMessages(cached.map((m) => ({
+          ...m,
+          isOwn: false,
+          error: false,
+          trustStatus: 'unsigned' as TrustStatus,
+        })));
+        setLoading(false);
+      }
+
       try {
         // Fetch room metadata
         const roomInfo = await getRoom(roomId);
@@ -175,7 +188,7 @@ export default function Room() {
         );
         setCryptoKey(key);
 
-        // Load history
+        // Load history (will replace cached messages with verified ones)
         await loadHistory(roomId, key, roomInfo.version);
 
         setLoading(false);
@@ -258,6 +271,15 @@ export default function Room() {
       );
 
       setMessages(decrypted);
+
+      // Cache the decrypted messages for offline/instant loading
+      setCachedMessages(currentRoomId, decrypted.map((m) => ({
+        msgId: m.msgId,
+        displayName: m.displayName,
+        text: m.text,
+        clientTs: m.clientTs,
+        createdAt: m.createdAt,
+      })));
     } catch (err) {
       console.error('Failed to load history:', err);
     }
@@ -351,6 +373,14 @@ export default function Room() {
                   if (current.some((m) => m.msgId === data.msgId)) {
                     return current;
                   }
+                  // Cache the new message
+                  appendCachedMessage(room.roomId, {
+                    msgId: decrypted.msgId,
+                    displayName: decrypted.displayName,
+                    text: decrypted.text,
+                    clientTs: decrypted.clientTs,
+                    createdAt: decrypted.createdAt,
+                  });
                   return [...current, decrypted];
                 });
               });
@@ -439,6 +469,8 @@ export default function Room() {
         })
       );
 
+      const createdAt = new Date().toISOString();
+
       // Optimistically add to local messages
       setMessages((prev) => [
         ...prev,
@@ -447,11 +479,20 @@ export default function Room() {
           displayName,
           text,
           clientTs,
-          createdAt: new Date().toISOString(),
+          createdAt,
           isOwn: true,
           trustStatus: signingKeyRef.current ? 'verified' : 'unsigned',
         },
       ]);
+
+      // Cache sent message
+      appendCachedMessage(room.roomId, {
+        msgId,
+        displayName,
+        text,
+        clientTs,
+        createdAt,
+      });
 
       setMessageInput('');
     } catch (err) {
