@@ -20,6 +20,7 @@ export interface HistoryMessage {
 function adminApiError(status: number, fallback: string): Error {
   if (status === 401) return new Error('Invalid admin token');
   if (status === 404) return new Error('Recipe not found');
+  if (status === 409) return new Error('A recipe with that name already exists');
   if (status === 405) {
     return new Error(
       'Admin API endpoint rejected this method (405). Verify VITE_API_BASE_URL points to the Worker/API host, not the Pages site.'
@@ -77,7 +78,7 @@ export function getWebSocketUrl(roomId: string): string {
 // Admin endpoints
 export async function createRoom(
   adminToken: string,
-  options?: { title?: string; kdfIters?: number }
+  options?: { title?: string; slug?: string; kdfIters?: number }
 ): Promise<RoomInfo> {
   const res = await fetch(`${API_BASE}/api/admin/rooms`, {
     method: 'POST',

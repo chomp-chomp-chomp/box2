@@ -7,6 +7,18 @@ interface InviteKit {
   roomId: string;
   title: string | null;
   passphrase: string;
+  shareLink: string;
+}
+
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/['']/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 export default function Admin() {
@@ -20,7 +32,7 @@ export default function Admin() {
   });
 
   // Create recipe state
-  const [createTitle, setCreateTitle] = useState('');
+  const [createName, setCreateName] = useState('');
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState('');
   const [createInviteKit, setCreateInviteKit] = useState<InviteKit | null>(null);
@@ -63,24 +75,43 @@ export default function Admin() {
     setCreateInviteKit(null);
     setCreateLoading(true);
 
+    const name = createName.trim();
+    if (!name) {
+      setCreateError('Please enter a recipe name.');
+      setCreateLoading(false);
+      return;
+    }
+
+    const slug = slugify(name);
+    if (slug.length < 3) {
+      setCreateError('Recipe name must be at least 3 characters.');
+      setCreateLoading(false);
+      return;
+    }
+
     try {
-      // Create room on server
+      // Create room with slug as ID and original name as title
       const room = await createRoom(adminToken, {
-        title: createTitle.trim() || undefined,
+        slug,
+        title: name,
       });
 
       // Generate passphrase client-side
       const passphrase = generatePassphrase();
+
+      // Build share link with passphrase in fragment (never sent to server)
+      const shareLink = `${window.location.origin}/join/${encodeURIComponent(room.roomId)}#${passphrase}`;
 
       // Show invite kit
       setCreateInviteKit({
         roomId: room.roomId,
         title: room.title,
         passphrase,
+        shareLink,
       });
 
       // Clear form and refresh list
-      setCreateTitle('');
+      setCreateName('');
       loadRooms();
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Failed to create recipe');
@@ -98,7 +129,7 @@ export default function Admin() {
 
     const roomId = rotateRoomId.trim();
     if (!roomId) {
-      setRotateError('Please enter a recipe code');
+      setRotateError('Please enter a recipe name');
       setRotateLoading(false);
       return;
     }
@@ -110,11 +141,15 @@ export default function Admin() {
       // Generate new passphrase client-side
       const passphrase = generatePassphrase();
 
+      // Build share link
+      const shareLink = `${window.location.origin}/join/${encodeURIComponent(room.roomId)}#${passphrase}`;
+
       // Show invite kit
       setRotateInviteKit({
         roomId: room.roomId,
         title: null,
         passphrase,
+        shareLink,
       });
 
       // Clear form
@@ -159,8 +194,11 @@ export default function Admin() {
     }
   };
 
+  // Copy feedback state
+  const [copied, setCopied] = useState<string | null>(null);
+
   // Copy to clipboard
-  const copyToClipboard = async (text: string) => {
+  const copyToClipboard = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -172,6 +210,8 @@ export default function Admin() {
       document.execCommand('copy');
       document.body.removeChild(textarea);
     }
+    setCopied(label);
+    setTimeout(() => setCopied(null), 2000);
   };
 
   if (!isAuthenticated) {
@@ -220,17 +260,22 @@ export default function Admin() {
         <h2>Create Recipe</h2>
         <form className="admin-form" onSubmit={handleCreateRecipe}>
           <div>
-            <label htmlFor="create-title">Recipe Title (optional)</label>
+            <label htmlFor="create-name">Recipe Name</label>
             <input
-              id="create-title"
+              id="create-name"
               type="text"
-              value={createTitle}
-              onChange={(e) => setCreateTitle(e.target.value)}
-              placeholder="e.g., Team Chat"
-              maxLength={100}
+              value={createName}
+              onChange={(e) => setCreateName(e.target.value)}
+              placeholder="e.g., grandma's cookies"
+              maxLength={64}
             />
+            {createName.trim() && (
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                URL: {slugify(createName.trim())}
+              </div>
+            )}
           </div>
-          <button type="submit" disabled={createLoading}>
+          <button type="submit" disabled={createLoading || !createName.trim()}>
             {createLoading ? 'Creating...' : 'Create Recipe'}
           </button>
           {createError && <div className="error-message">{createError}</div>}
@@ -238,41 +283,53 @@ export default function Admin() {
 
         {createInviteKit && (
           <div className="invite-kit">
-            <h3>Invite Kit</h3>
-            {createInviteKit.title && (
-              <div className="invite-kit-item">
-                <div className="invite-kit-label">Title</div>
-                <div className="invite-kit-value">
-                  <code>{createInviteKit.title}</code>
+            <h3>Share Link</h3>
+            <div className="invite-kit-item">
+              <div className="invite-kit-label">Send this link to invite people</div>
+              <div className="invite-kit-value" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                <code style={{ fontSize: '0.7rem', wordBreak: 'break-all' }}>{createInviteKit.shareLink}</code>
+                <button
+                  className="secondary small"
+                  style={{ alignSelf: 'flex-start', marginTop: '0.5rem' }}
+                  onClick={() => copyToClipboard(createInviteKit.shareLink, 'create-link')}
+                >
+                  {copied === 'create-link' ? 'Copied!' : 'Copy Link'}
+                </button>
+              </div>
+            </div>
+            <details style={{ marginTop: '0.75rem' }}>
+              <summary style={{ fontSize: '0.8rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                Manual entry details
+              </summary>
+              <div style={{ marginTop: '0.5rem' }}>
+                <div className="invite-kit-item">
+                  <div className="invite-kit-label">Recipe Name</div>
+                  <div className="invite-kit-value">
+                    <code>{createInviteKit.roomId}</code>
+                    <button
+                      className="secondary small"
+                      onClick={() => copyToClipboard(createInviteKit.roomId, 'create-code')}
+                    >
+                      {copied === 'create-code' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+                <div className="invite-kit-item">
+                  <div className="invite-kit-label">Passphrase</div>
+                  <div className="invite-kit-value">
+                    <code>{createInviteKit.passphrase}</code>
+                    <button
+                      className="secondary small"
+                      onClick={() => copyToClipboard(createInviteKit.passphrase, 'create-pass')}
+                    >
+                      {copied === 'create-pass' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
                 </div>
               </div>
-            )}
-            <div className="invite-kit-item">
-              <div className="invite-kit-label">Recipe Code</div>
-              <div className="invite-kit-value">
-                <code>{createInviteKit.roomId}</code>
-                <button
-                  className="secondary small"
-                  onClick={() => copyToClipboard(createInviteKit.roomId)}
-                >
-                  Copy
-                </button>
-              </div>
-            </div>
-            <div className="invite-kit-item">
-              <div className="invite-kit-label">Passphrase</div>
-              <div className="invite-kit-value">
-                <code>{createInviteKit.passphrase}</code>
-                <button
-                  className="secondary small"
-                  onClick={() => copyToClipboard(createInviteKit.passphrase)}
-                >
-                  Copy
-                </button>
-              </div>
-            </div>
+            </details>
             <p className="invite-kit-warning">
-              Save this passphrase now. It will not be shown again.
+              Save this link or passphrase now. It will not be shown again.
             </p>
           </div>
         )}
@@ -286,13 +343,13 @@ export default function Admin() {
         </p>
         <form className="admin-form" onSubmit={handleRotatePassphrase}>
           <div>
-            <label htmlFor="rotate-room">Recipe Code</label>
+            <label htmlFor="rotate-room">Recipe Name</label>
             <input
               id="rotate-room"
               type="text"
               value={rotateRoomId}
               onChange={(e) => setRotateRoomId(e.target.value)}
-              placeholder="Enter recipe code"
+              placeholder="e.g. grandmas-cookies"
               autoComplete="off"
             />
           </div>
@@ -304,33 +361,53 @@ export default function Admin() {
 
         {rotateInviteKit && (
           <div className="invite-kit">
-            <h3>New Invite Kit</h3>
+            <h3>New Share Link</h3>
             <div className="invite-kit-item">
-              <div className="invite-kit-label">Recipe Code</div>
-              <div className="invite-kit-value">
-                <code>{rotateInviteKit.roomId}</code>
+              <div className="invite-kit-label">Send this link to invite people</div>
+              <div className="invite-kit-value" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                <code style={{ fontSize: '0.7rem', wordBreak: 'break-all' }}>{rotateInviteKit.shareLink}</code>
                 <button
                   className="secondary small"
-                  onClick={() => copyToClipboard(rotateInviteKit.roomId)}
+                  style={{ alignSelf: 'flex-start', marginTop: '0.5rem' }}
+                  onClick={() => copyToClipboard(rotateInviteKit.shareLink, 'rotate-link')}
                 >
-                  Copy
+                  {copied === 'rotate-link' ? 'Copied!' : 'Copy Link'}
                 </button>
               </div>
             </div>
-            <div className="invite-kit-item">
-              <div className="invite-kit-label">New Passphrase</div>
-              <div className="invite-kit-value">
-                <code>{rotateInviteKit.passphrase}</code>
-                <button
-                  className="secondary small"
-                  onClick={() => copyToClipboard(rotateInviteKit.passphrase)}
-                >
-                  Copy
-                </button>
+            <details style={{ marginTop: '0.75rem' }}>
+              <summary style={{ fontSize: '0.8rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                Manual entry details
+              </summary>
+              <div style={{ marginTop: '0.5rem' }}>
+                <div className="invite-kit-item">
+                  <div className="invite-kit-label">Recipe Name</div>
+                  <div className="invite-kit-value">
+                    <code>{rotateInviteKit.roomId}</code>
+                    <button
+                      className="secondary small"
+                      onClick={() => copyToClipboard(rotateInviteKit.roomId, 'rotate-code')}
+                    >
+                      {copied === 'rotate-code' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+                <div className="invite-kit-item">
+                  <div className="invite-kit-label">New Passphrase</div>
+                  <div className="invite-kit-value">
+                    <code>{rotateInviteKit.passphrase}</code>
+                    <button
+                      className="secondary small"
+                      onClick={() => copyToClipboard(rotateInviteKit.passphrase, 'rotate-pass')}
+                    >
+                      {copied === 'rotate-pass' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
+            </details>
             <p className="invite-kit-warning">
-              Save this passphrase now. It will not be shown again. Share it with participants.
+              Save this link or passphrase now. It will not be shown again. Share it with participants.
             </p>
           </div>
         )}
