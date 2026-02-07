@@ -275,7 +275,8 @@ export default {
 
         const result = await env.DB.prepare(query).bind(...bindings).all();
 
-        const messages = (result.results || []).map((row: any) => ({
+        // Reverse so messages are oldest-first (chat order)
+        const messages = (result.results || []).reverse().map((row: any) => ({
           msgId: row.msg_id,
           version: row.version,
           createdAt: row.created_at,

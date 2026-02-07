@@ -194,7 +194,7 @@ export default function Room() {
         setCryptoKey(key);
 
         // Load history (will replace cached messages with verified ones)
-        await loadHistory(roomId, key, roomInfo.version);
+        await loadHistory(roomId, key);
 
         setLoading(false);
       } catch (err) {
@@ -261,12 +261,11 @@ export default function Room() {
   const loadHistory = async (
     currentRoomId: string,
     key: CryptoKey,
-    version: number
   ) => {
     try {
+      // Don't filter by version so we get all messages regardless of passphrase rotation
       const { messages: historyMessages } = await getHistory(currentRoomId, {
         limit: 50,
-        version,
       });
 
       const decrypted = await Promise.all(
@@ -277,14 +276,16 @@ export default function Room() {
 
       setMessages(decrypted);
 
-      // Cache the decrypted messages for offline/instant loading
-      setCachedMessages(currentRoomId, decrypted.map((m) => ({
-        msgId: m.msgId,
-        displayName: m.displayName,
-        text: m.text,
-        clientTs: m.clientTs,
-        createdAt: m.createdAt,
-      })));
+      // Only update cache if we got results (don't overwrite good cache with empty)
+      if (decrypted.length > 0) {
+        setCachedMessages(currentRoomId, decrypted.map((m) => ({
+          msgId: m.msgId,
+          displayName: m.displayName,
+          text: m.text,
+          clientTs: m.clientTs,
+          createdAt: m.createdAt,
+        })));
+      }
     } catch (err) {
       console.error('Failed to load history:', err);
     }
