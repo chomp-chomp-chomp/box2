@@ -24,8 +24,8 @@ export default function Join() {
       try {
         const room = await getRoom(roomId);
 
-        // Store credentials in sessionStorage
-        sessionStorage.setItem(
+        // Store credentials in localStorage so they persist across sessions
+        localStorage.setItem(
           `recipe:${room.roomId}`,
           JSON.stringify({
             passphrase,

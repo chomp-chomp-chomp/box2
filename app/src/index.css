@@ -48,6 +48,8 @@
 
 html, body {
   height: 100%;
+  /* Respect safe areas on notched devices (iOS) */
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
 }
 
 body {
@@ -397,6 +399,7 @@ button.small {
 
 .message-input-container {
   padding: 1rem;
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--border);
   background: var(--bg-primary);
 }

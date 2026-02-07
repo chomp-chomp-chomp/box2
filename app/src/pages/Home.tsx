@@ -47,8 +47,8 @@ export default function Home() {
       // Verify room exists before navigating
       const room = await getRoom(trimmedCode);
 
-      // Store credentials in sessionStorage — key derivation happens in Room
-      sessionStorage.setItem(
+      // Store credentials in localStorage so they persist across sessions
+      localStorage.setItem(
         `recipe:${room.roomId}`,
         JSON.stringify({
           passphrase: trimmedPassphrase,
@@ -65,7 +65,7 @@ export default function Home() {
   };
 
   const handleRecentClick = (room: RecentRoom) => {
-    const stored = sessionStorage.getItem(`recipe:${room.roomId}`);
+    const stored = localStorage.getItem(`recipe:${room.roomId}`);
     if (stored) {
       navigate(`/room/${room.roomId}`);
     } else {
