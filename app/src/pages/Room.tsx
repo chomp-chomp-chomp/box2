@@ -172,7 +172,7 @@ export default function Room() {
         setCryptoKey(key);
 
         // Load history
-        await loadHistory(roomId, key);
+        await loadHistory(roomId, key, roomInfo.version);
 
         setLoading(false);
       } catch (err) {
@@ -238,13 +238,13 @@ export default function Room() {
   // Load message history
   const loadHistory = async (
     currentRoomId: string,
-    key: CryptoKey
+    key: CryptoKey,
+    version: number
   ) => {
     try {
-      const roomInfo = await getRoom(currentRoomId);
       const { messages: historyMessages } = await getHistory(currentRoomId, {
         limit: 50,
-        version: roomInfo.version,
+        version,
       });
 
       const decrypted = await Promise.all(

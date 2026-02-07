@@ -23,12 +23,13 @@ function corsResponse(response: Response): Response {
   });
 }
 
-function jsonResponse(data: any, status = 200): Response {
+function jsonResponse(data: any, status = 200, cacheSeconds = 0): Response {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (cacheSeconds > 0) {
+    headers['Cache-Control'] = `public, max-age=${cacheSeconds}`;
+  }
   return corsResponse(
-    new Response(JSON.stringify(data), {
-      status,
-      headers: { 'Content-Type': 'application/json' },
-    })
+    new Response(JSON.stringify(data), { status, headers })
   );
 }
 
@@ -179,7 +180,7 @@ export default {
           saltB64: room.salt_b64,
           kdfIters: room.kdf_iters,
           version: room.version,
-        });
+        }, 200, 60);
       } catch (err) {
         return errorResponse('Failed to fetch room', 500);
       }

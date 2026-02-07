@@ -28,13 +28,24 @@ function adminApiError(status: number, fallback: string): Error {
   return new Error(fallback);
 }
 
+// In-memory room metadata cache (survives within a page session)
+const roomCache = new Map<string, { data: RoomInfo; ts: number }>();
+const ROOM_CACHE_TTL = 60_000; // 1 minute
+
 // Public endpoints
 export async function getRoom(roomId: string): Promise<RoomInfo> {
+  const cached = roomCache.get(roomId);
+  if (cached && Date.now() - cached.ts < ROOM_CACHE_TTL) {
+    return cached.data;
+  }
+
   const res = await fetch(`${API_BASE}/api/rooms/${encodeURIComponent(roomId)}`);
   if (!res.ok) {
     throw new Error(res.status === 404 ? 'Recipe not found' : 'Failed to fetch recipe');
   }
-  return res.json();
+  const data: RoomInfo = await res.json();
+  roomCache.set(roomId, { data, ts: Date.now() });
+  return data;
 }
 
 export async function getHistory(

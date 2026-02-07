@@ -1,7 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getRoom } from '../utils/api';
-import { deriveKeyPBKDF2 } from '../utils/crypto';
 import { getRecentRooms, removeRecentRoom, RecentRoom } from '../utils/recentRooms';
 
 const INTRO_TEXT = `This is a small kitchen.
@@ -37,18 +36,10 @@ export default function Home() {
     }
 
     try {
-      // Fetch room metadata
+      // Verify room exists before navigating
       const room = await getRoom(trimmedCode);
 
-      // Derive key to verify passphrase can be derived
-      // Actual decryption validation happens when loading messages
-      await deriveKeyPBKDF2(
-        trimmedPassphrase,
-        room.saltB64,
-        room.kdfIters
-      );
-
-      // Store credentials in sessionStorage for the room page
+      // Store credentials in sessionStorage — key derivation happens in Room
       sessionStorage.setItem(
         `recipe:${room.roomId}`,
         JSON.stringify({
@@ -60,11 +51,7 @@ export default function Home() {
       // Navigate to room
       navigate(`/room/${room.roomId}`);
     } catch (err) {
-      if (err instanceof Error && err.message === 'Recipe not found') {
-        setError("Couldn't open this recipe.");
-      } else {
-        setError("Couldn't open this recipe.");
-      }
+      setError("Couldn't open this recipe.");
       setLoading(false);
     }
   };
