@@ -79,6 +79,27 @@ export default {
         return errorResponse('Unauthorized', 401);
       }
 
+      // GET /api/admin/rooms - List all rooms
+      if (url.pathname === '/api/admin/rooms' && request.method === 'GET') {
+        try {
+          const result = await env.DB.prepare(
+            'SELECT r.room_id, r.title, r.version, r.created_at, COUNT(m.msg_id) as message_count FROM rooms r LEFT JOIN messages m ON r.room_id = m.room_id GROUP BY r.room_id ORDER BY r.created_at DESC'
+          ).all();
+
+          const rooms = (result.results || []).map((row: any) => ({
+            roomId: row.room_id,
+            title: row.title,
+            version: row.version,
+            createdAt: row.created_at,
+            messageCount: row.message_count,
+          }));
+
+          return jsonResponse({ rooms });
+        } catch (err) {
+          return errorResponse('Failed to list rooms', 500);
+        }
+      }
+
       // POST /api/admin/rooms - Create new room
       if (url.pathname === '/api/admin/rooms' && request.method === 'POST') {
         try {
@@ -155,6 +176,33 @@ export default {
           return jsonResponse({ success: true });
         } catch (err) {
           return errorResponse('Failed to update room', 500);
+        }
+      }
+
+      // DELETE /api/admin/rooms/:roomId - Delete room and all its messages
+      const deleteMatch = url.pathname.match(/^\/api\/admin\/rooms\/([^/]+)$/);
+      if (deleteMatch && request.method === 'DELETE') {
+        const roomId = decodeURIComponent(deleteMatch[1]);
+        try {
+          const room = await env.DB.prepare('SELECT room_id FROM rooms WHERE room_id = ?')
+            .bind(roomId)
+            .first();
+
+          if (!room) {
+            return errorResponse('Room not found', 404);
+          }
+
+          // Delete messages first, then the room
+          await env.DB.prepare('DELETE FROM messages WHERE room_id = ?')
+            .bind(roomId)
+            .run();
+          await env.DB.prepare('DELETE FROM rooms WHERE room_id = ?')
+            .bind(roomId)
+            .run();
+
+          return jsonResponse({ success: true, roomId });
+        } catch (err) {
+          return errorResponse('Failed to delete room', 500);
         }
       }
 

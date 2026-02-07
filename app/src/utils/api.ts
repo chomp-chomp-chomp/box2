@@ -130,3 +130,41 @@ export async function updateRoom(
   }
   return res.json();
 }
+
+export interface AdminRoom {
+  roomId: string;
+  title: string | null;
+  version: number;
+  createdAt: string;
+  messageCount: number;
+}
+
+export async function listRooms(
+  adminToken: string
+): Promise<{ rooms: AdminRoom[] }> {
+  const res = await fetch(`${API_BASE}/api/admin/rooms`, {
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+    },
+  });
+  if (!res.ok) {
+    throw adminApiError(res.status, 'Failed to list rooms');
+  }
+  return res.json();
+}
+
+export async function deleteRoom(
+  adminToken: string,
+  roomId: string
+): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_BASE}/api/admin/rooms/${encodeURIComponent(roomId)}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${adminToken}`,
+    },
+  });
+  if (!res.ok) {
+    throw adminApiError(res.status, 'Failed to delete recipe');
+  }
+  return res.json();
+}

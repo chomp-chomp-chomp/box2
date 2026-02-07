@@ -1,6 +1,6 @@
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, useCallback, FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { createRoom, rotatePassphrase } from '../utils/api';
+import { createRoom, rotatePassphrase, listRooms, deleteRoom, AdminRoom } from '../utils/api';
 import { generatePassphrase } from '../utils/crypto';
 
 interface InviteKit {
@@ -30,6 +30,12 @@ export default function Admin() {
   const [rotateLoading, setRotateLoading] = useState(false);
   const [rotateError, setRotateError] = useState('');
   const [rotateInviteKit, setRotateInviteKit] = useState<InviteKit | null>(null);
+
+  // Room list state
+  const [rooms, setRooms] = useState<AdminRoom[]>([]);
+  const [roomsLoading, setRoomsLoading] = useState(false);
+  const [roomsError, setRoomsError] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   // Set admin token
   const handleSetToken = (e: FormEvent) => {
@@ -73,8 +79,9 @@ export default function Admin() {
         passphrase,
       });
 
-      // Clear form
+      // Clear form and refresh list
       setCreateTitle('');
+      loadRooms();
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Failed to create recipe');
     } finally {
@@ -116,6 +123,39 @@ export default function Admin() {
       setRotateError(err instanceof Error ? err.message : 'Failed to rotate passphrase');
     } finally {
       setRotateLoading(false);
+    }
+  };
+
+  // Load rooms
+  const loadRooms = useCallback(async () => {
+    if (!adminToken) return;
+    setRoomsLoading(true);
+    setRoomsError('');
+    try {
+      const { rooms: roomList } = await listRooms(adminToken);
+      setRooms(roomList);
+    } catch (err) {
+      setRoomsError(err instanceof Error ? err.message : 'Failed to load rooms');
+    } finally {
+      setRoomsLoading(false);
+    }
+  }, [adminToken]);
+
+  // Load rooms on auth
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadRooms();
+    }
+  }, [isAuthenticated, loadRooms]);
+
+  // Delete room
+  const handleDeleteRoom = async (roomId: string) => {
+    try {
+      await deleteRoom(adminToken, roomId);
+      setRooms((prev) => prev.filter((r) => r.roomId !== roomId));
+      setDeleteConfirm(null);
+    } catch (err) {
+      setRoomsError(err instanceof Error ? err.message : 'Failed to delete room');
     }
   };
 
@@ -292,6 +332,64 @@ export default function Admin() {
             <p className="invite-kit-warning">
               Save this passphrase now. It will not be shown again. Share it with participants.
             </p>
+          </div>
+        )}
+      </div>
+
+      {/* All Rooms Section */}
+      <div className="admin-section">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2>All Rooms</h2>
+          <button className="secondary small" onClick={loadRooms} disabled={roomsLoading}>
+            {roomsLoading ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
+        {roomsError && <div className="error-message">{roomsError}</div>}
+
+        {rooms.length === 0 && !roomsLoading && !roomsError && (
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No rooms yet.</p>
+        )}
+
+        {rooms.length > 0 && (
+          <div className="rooms-list">
+            {rooms.map((room) => (
+              <div key={room.roomId} className="room-list-item">
+                <div className="room-list-info">
+                  <div className="room-list-title">{room.title || 'Untitled'}</div>
+                  <div className="room-list-meta">
+                    <code>{room.roomId}</code>
+                    <span>{room.messageCount} messages</span>
+                    <span>v{room.version}</span>
+                    <span>{new Date(room.createdAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                <div className="room-list-actions">
+                  {deleteConfirm === room.roomId ? (
+                    <>
+                      <button
+                        className="danger small"
+                        onClick={() => handleDeleteRoom(room.roomId)}
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        className="secondary small"
+                        onClick={() => setDeleteConfirm(null)}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="secondary small"
+                      onClick={() => setDeleteConfirm(room.roomId)}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
