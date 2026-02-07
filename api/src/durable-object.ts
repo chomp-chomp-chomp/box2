@@ -30,6 +30,7 @@ export class RecipeRoom extends DurableObject {
   private rateLimits: Map<string, RateLimitEntry>;
   private env: Env;
   private initialized: boolean;
+  private roomId: string | null;
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
@@ -38,6 +39,7 @@ export class RecipeRoom extends DurableObject {
     this.rateLimits = new Map();
     this.env = env;
     this.initialized = false;
+    this.roomId = null;
   }
 
   private ensureSchema(): void {
@@ -83,6 +85,16 @@ export class RecipeRoom extends DurableObject {
     const upgradeHeader = request.headers.get('Upgrade');
     if (upgradeHeader !== 'websocket') {
       return new Response('Expected WebSocket', { status: 426 });
+    }
+
+    // Extract roomId from the request URL (e.g., /api/rooms/:roomId/ws)
+    const url = new URL(request.url);
+    const wsMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/ws$/);
+    if (wsMatch) {
+      this.roomId = decodeURIComponent(wsMatch[1]);
+    } else {
+      // Fallback to DO name
+      this.roomId = this.ctx.id.name || null;
     }
 
     const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
@@ -194,12 +206,30 @@ export class RecipeRoom extends DurableObject {
       }
     }
 
-    // Extract room ID from the Durable Object name
-    const roomId = await this.getRoomId();
+    const roomId = this.roomId || this.ctx.id.name || 'unknown';
+    const createdAt = new Date().toISOString();
 
-    // Store message in D1
+    // Build broadcast message
+    const broadcastMsg = {
+      type: 'message',
+      msgId: msg.msgId,
+      version: msg.version,
+      createdAt,
+      ivB64: msg.ivB64,
+      ciphertextB64: msg.ciphertextB64,
+      senderName: msg.senderName || null,
+    };
+
+    // Broadcast to all connected clients FIRST (real-time delivery)
+    const messageStr = JSON.stringify(broadcastMsg);
+    this.connections.forEach((client) => {
+      if (client.readyState === 1) {
+        client.send(messageStr);
+      }
+    });
+
+    // Then persist to D1 (async, non-blocking for real-time)
     try {
-      const createdAt = new Date().toISOString();
       await this.env.DB.prepare(
         'INSERT INTO messages (room_id, msg_id, version, created_at, iv_b64, ciphertext_b64, sender_name) VALUES (?, ?, ?, ?, ?, ?, ?)'
       )
@@ -213,34 +243,9 @@ export class RecipeRoom extends DurableObject {
           msg.senderName || null
         )
         .run();
-
-      // Broadcast to all connected clients
-      const broadcastMsg = {
-        type: 'message',
-        msgId: msg.msgId,
-        version: msg.version,
-        createdAt,
-        ivB64: msg.ivB64,
-        ciphertextB64: msg.ciphertextB64,
-        senderName: msg.senderName || null,
-      };
-
-      const messageStr = JSON.stringify(broadcastMsg);
-      this.connections.forEach((client) => {
-        if (client.readyState === 1) {
-          // OPEN
-          client.send(messageStr);
-        }
-      });
     } catch (err) {
-      console.error('Failed to store message:', err);
-      ws.send(JSON.stringify({ type: 'error', message: 'Failed to store message' }));
+      console.error('Failed to persist message to D1:', err);
+      // Message was already broadcast — just log the storage failure
     }
-  }
-
-  private async getRoomId(): Promise<string> {
-    // The Durable Object ID name is the room ID
-    // This is set when creating the Durable Object via idFromName(roomId)
-    return this.ctx.id.name || 'unknown';
   }
 }
