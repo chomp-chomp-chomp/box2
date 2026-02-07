@@ -159,8 +159,11 @@ export default function Admin() {
     }
   };
 
+  // Copy feedback state
+  const [copied, setCopied] = useState<string | null>(null);
+
   // Copy to clipboard
-  const copyToClipboard = async (text: string) => {
+  const copyToClipboard = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -172,6 +175,8 @@ export default function Admin() {
       document.execCommand('copy');
       document.body.removeChild(textarea);
     }
+    setCopied(label);
+    setTimeout(() => setCopied(null), 2000);
   };
 
   if (!isAuthenticated) {
@@ -253,9 +258,9 @@ export default function Admin() {
                 <code>{createInviteKit.roomId}</code>
                 <button
                   className="secondary small"
-                  onClick={() => copyToClipboard(createInviteKit.roomId)}
+                  onClick={() => copyToClipboard(createInviteKit.roomId, 'create-code')}
                 >
-                  Copy
+                  {copied === 'create-code' ? 'Copied!' : 'Copy'}
                 </button>
               </div>
             </div>
@@ -265,9 +270,9 @@ export default function Admin() {
                 <code>{createInviteKit.passphrase}</code>
                 <button
                   className="secondary small"
-                  onClick={() => copyToClipboard(createInviteKit.passphrase)}
+                  onClick={() => copyToClipboard(createInviteKit.passphrase, 'create-pass')}
                 >
-                  Copy
+                  {copied === 'create-pass' ? 'Copied!' : 'Copy'}
                 </button>
               </div>
             </div>
@@ -311,9 +316,9 @@ export default function Admin() {
                 <code>{rotateInviteKit.roomId}</code>
                 <button
                   className="secondary small"
-                  onClick={() => copyToClipboard(rotateInviteKit.roomId)}
+                  onClick={() => copyToClipboard(rotateInviteKit.roomId, 'rotate-code')}
                 >
-                  Copy
+                  {copied === 'rotate-code' ? 'Copied!' : 'Copy'}
                 </button>
               </div>
             </div>
@@ -323,9 +328,9 @@ export default function Admin() {
                 <code>{rotateInviteKit.passphrase}</code>
                 <button
                   className="secondary small"
-                  onClick={() => copyToClipboard(rotateInviteKit.passphrase)}
+                  onClick={() => copyToClipboard(rotateInviteKit.passphrase, 'rotate-pass')}
                 >
-                  Copy
+                  {copied === 'rotate-pass' ? 'Copied!' : 'Copy'}
                 </button>
               </div>
             </div>
