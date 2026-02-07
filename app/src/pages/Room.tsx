@@ -274,10 +274,9 @@ export default function Room() {
         })
       );
 
-      setMessages(decrypted);
-
-      // Only update cache if we got results (don't overwrite good cache with empty)
+      // Only update messages and cache if we got results (don't overwrite cache with empty)
       if (decrypted.length > 0) {
+        setMessages(decrypted);
         setCachedMessages(currentRoomId, decrypted.map((m) => ({
           msgId: m.msgId,
           displayName: m.displayName,
@@ -288,6 +287,7 @@ export default function Room() {
       }
     } catch (err) {
       console.error('Failed to load history:', err);
+      // Keep showing cached messages on error - don't clear them
     }
   };
 
