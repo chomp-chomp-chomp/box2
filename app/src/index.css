@@ -2,14 +2,14 @@
 
 :root {
   --bg-primary: #faf8f6;
-  --bg-secondary: #f0ece8;
+  --bg-secondary: #e8e3dd;
   --bg-input: #ffffff;
   --text-primary: #2c2825;
   --text-secondary: #6b6460;
   --text-muted: #9a938e;
   --accent: #b5693a;
   --accent-hover: #9e5830;
-  --accent-light: #f3e8df;
+  --accent-light: #e8d5c5;
   --accent-text: #4a2e18;
   --border: #ddd6cf;
   --error: #b84233;
@@ -76,6 +76,7 @@ input {
   padding: 0.75rem 1rem;
   border-radius: var(--radius);
   width: 100%;
+  font-size: 1rem; /* >=16px prevents iOS Safari zoom on focus */
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
@@ -373,7 +374,7 @@ button.small {
 
 .message-text {
   font-family: var(--font-mono);
-  font-size: 0.88rem;
+  font-size: 0.92rem;
   line-height: 1.6;
 }
 
@@ -410,7 +411,7 @@ button.small {
 .message-input-form input {
   flex: 1;
   font-family: var(--font-mono);
-  font-size: 0.88rem;
+  font-size: 1rem; /* >=16px prevents iOS Safari zoom on focus */
 }
 
 /* Trust indicators */
