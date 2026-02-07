@@ -353,6 +353,11 @@ button.small {
 
 .message.own .message-sender {
   color: rgba(255, 255, 255, 0.7);
+  justify-content: flex-end;
+}
+
+.message.own .trust-verified {
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .message-text {
@@ -410,6 +415,13 @@ button.small {
 
 .trust-mismatch {
   color: var(--error);
+}
+
+/* Signing status in header */
+.signing-status {
+  font-size: 0.65rem;
+  color: var(--success);
+  letter-spacing: 0.02em;
 }
 
 /* Display name modal */

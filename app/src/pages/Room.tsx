@@ -82,6 +82,8 @@ export default function Room() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
+  const [signingActive, setSigningActive] = useState(false);
+
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const signingKeyRef = useRef<{ privateKey: CryptoKey; publicKeyJwk: JsonWebKey } | null>(null);
@@ -122,6 +124,7 @@ export default function Room() {
             publicKeyJwk,
           };
         }
+        setSigningActive(true);
       } catch (err) {
         console.error('Failed to initialize signing keypair:', err);
       }
@@ -517,16 +520,26 @@ export default function Room() {
             <div className="room-title">{room?.title || 'Untitled Recipe'}</div>
             <div className="room-code">{roomId}</div>
           </div>
-          <span
-            className={`connection-status ${connectionStatus}`}
-            title={connectionStatus}
-          >
-            {connectionStatus === 'connected'
-              ? 'connected'
-              : connectionStatus === 'connecting'
-              ? 'connecting...'
-              : 'disconnected'}
-          </span>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem', marginLeft: 'auto' }}>
+            <span
+              className={`connection-status ${connectionStatus}`}
+              title={connectionStatus}
+            >
+              {connectionStatus === 'connected'
+                ? 'connected'
+                : connectionStatus === 'connecting'
+                ? 'connecting...'
+                : 'disconnected'}
+            </span>
+            {signingActive && (
+              <span className="signing-status" title="Messages are signed with your identity key">
+                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true" style={{ verticalAlign: 'middle', marginRight: '0.25rem' }}>
+                  <path d="M6 1C4.34 1 3 2.34 3 4V5H2.5C2.22 5 2 5.22 2 5.5V10.5C2 10.78 2.22 11 2.5 11H9.5C9.78 11 10 10.78 10 10.5V5.5C10 5.22 9.78 5 9.5 5H9V4C9 2.34 7.66 1 6 1ZM7.5 5H4.5V4C4.5 3.17 5.17 2.5 6 2.5C6.83 2.5 7.5 3.17 7.5 4V5Z" fill="currentColor"/>
+                </svg>
+                signed
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -537,12 +550,10 @@ export default function Room() {
             key={msg.msgId}
             className={`message ${msg.isOwn ? 'own' : ''}`}
           >
-            {!msg.isOwn && (
-              <div className="message-sender">
-                {msg.displayName}
-                <TrustIndicator status={msg.trustStatus} />
-              </div>
-            )}
+            <div className="message-sender">
+              {!msg.isOwn && msg.displayName}
+              <TrustIndicator status={msg.trustStatus} />
+            </div>
             <div className={`message-text ${msg.error ? 'message-error' : ''}`}>
               {msg.text}
             </div>
