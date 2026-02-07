@@ -12,7 +12,7 @@ If you know a recipe, you already know how to open it.`;
 
 export default function Home() {
   const navigate = useNavigate();
-  const [recipeName, setRecipeName] = useState('');
+  const [recipeCode, setRecipeCode] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -27,18 +27,18 @@ export default function Home() {
     setError('');
     setLoading(true);
 
-    const trimmedRecipeName = recipeName.trim();
+    const trimmedCode = recipeCode.trim();
     const trimmedPassphrase = passphrase.trim();
 
-    if (!trimmedRecipeName || !trimmedPassphrase) {
-      setError('Please enter both recipe name and passphrase.');
+    if (!trimmedCode || !trimmedPassphrase) {
+      setError('Please enter both the recipe code and passphrase.');
       setLoading(false);
       return;
     }
 
     try {
       // Fetch room metadata
-      const room = await getRoom(trimmedRecipeName);
+      const room = await getRoom(trimmedCode);
 
       // Derive key to verify passphrase can be derived
       // Actual decryption validation happens when loading messages
@@ -74,7 +74,7 @@ export default function Home() {
     if (stored) {
       navigate(`/room/${room.roomId}`);
     } else {
-      setRecipeName(room.roomId);
+      setRecipeCode(room.roomId);
       setError('');
     }
   };
@@ -91,13 +91,13 @@ export default function Home() {
 
         <form className="home-form" onSubmit={handleSubmit}>
           <div>
-            <label htmlFor="recipe-name">Recipe name</label>
+            <label htmlFor="recipe-code">Recipe code</label>
             <input
-              id="recipe-name"
+              id="recipe-code"
               type="text"
-              value={recipeName}
-              onChange={(e) => setRecipeName(e.target.value)}
-              placeholder="Recipe name"
+              value={recipeCode}
+              onChange={(e) => setRecipeCode(e.target.value)}
+              placeholder="Recipe code"
               autoComplete="off"
               autoCorrect="off"
               autoCapitalize="off"
