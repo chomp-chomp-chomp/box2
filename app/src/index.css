@@ -1,37 +1,42 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
-  --bg-primary: #fdfdfd;
-  --bg-secondary: #f5f5f5;
+  --bg-primary: #faf8f6;
+  --bg-secondary: #f0ece8;
   --bg-input: #ffffff;
-  --text-primary: #353535;
-  --text-secondary: #7d7d7d;
-  --text-muted: #9d9d9d;
-  --accent: #e73b42;
-  --accent-hover: #d12d34;
-  --border: #e0e0e0;
-  --error: #c0392b;
+  --text-primary: #2c2825;
+  --text-secondary: #6b6460;
+  --text-muted: #9a938e;
+  --accent: #b5693a;
+  --accent-hover: #9e5830;
+  --accent-light: #f3e8df;
+  --accent-text: #4a2e18;
+  --border: #ddd6cf;
+  --error: #b84233;
   --success: #5a8a5e;
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
   --radius: 8px;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-primary: #231f1f;
-    --bg-secondary: #2b2626;
-    --bg-input: #2b2626;
-    --text-primary: #d9d4d4;
-    --text-secondary: #b9b4b4;
-    --text-muted: #948f8f;
-    --accent: #ff6b7a;
-    --accent-hover: #ff8590;
-    --border: #3b3636;
-    --error: #ff6b6b;
+    --bg-primary: #1a1816;
+    --bg-secondary: #242120;
+    --bg-input: #2a2725;
+    --text-primary: #ddd6cf;
+    --text-secondary: #a89f98;
+    --text-muted: #7a736e;
+    --accent: #d4956a;
+    --accent-hover: #e0a87e;
+    --accent-light: #352a22;
+    --accent-text: #eedacb;
+    --border: #3a3533;
+    --error: #e07a6a;
     --success: #7a9e7e;
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
   }
 }
 
@@ -46,7 +51,7 @@ html, body {
 }
 
 body {
-  font-family: 'Inter', 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.7;
@@ -77,12 +82,12 @@ input {
 input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(231, 59, 66, 0.1);
+  box-shadow: 0 0 0 3px rgba(181, 105, 58, 0.12);
 }
 
 @media (prefers-color-scheme: dark) {
   input:focus {
-    box-shadow: 0 0 0 3px rgba(255, 107, 122, 0.15);
+    box-shadow: 0 0 0 3px rgba(212, 149, 106, 0.15);
   }
 }
 
@@ -161,7 +166,8 @@ button.small {
 .home-intro {
   color: var(--text-secondary);
   margin-bottom: 2rem;
-  font-size: 0.95rem;
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
   line-height: 1.8;
   white-space: pre-line;
 }
@@ -182,7 +188,8 @@ button.small {
 
 .home-warning {
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
   font-style: italic;
   margin-top: 0.5rem;
 }
@@ -201,12 +208,13 @@ button.small {
 }
 
 .recent-rooms-title {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 500;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 0.75rem;
+  font-family: var(--font-mono);
 }
 
 .recent-rooms-list {
@@ -249,7 +257,8 @@ button.small {
 }
 
 .recent-room-id {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
   color: var(--text-muted);
 }
 
@@ -307,7 +316,8 @@ button.small {
 }
 
 .room-code {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
   color: var(--text-muted);
   letter-spacing: 0.3px;
 }
@@ -318,33 +328,34 @@ button.small {
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
   max-width: 720px;
   width: 100%;
   margin: 0 auto;
 }
 
 .message {
-  max-width: 75%;
-  padding: 0.75rem 1rem;
+  max-width: 520px;
+  width: 100%;
+  padding: 0.5rem 0.85rem;
   border-radius: var(--radius);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   word-break: break-word;
-  transition: box-shadow 0.2s;
 }
 
 .message.own {
   align-self: flex-end;
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--accent-light);
+  border-color: var(--border);
+  color: var(--accent-text);
 }
 
 .message-sender {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
   color: var(--text-muted);
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.15rem;
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -352,28 +363,30 @@ button.small {
 }
 
 .message.own .message-sender {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--accent);
   justify-content: flex-end;
 }
 
 .message.own .trust-verified {
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--success);
 }
 
 .message-text {
-  font-size: 0.95rem;
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
   line-height: 1.6;
 }
 
 .message-time {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
   color: var(--text-muted);
-  margin-top: 0.25rem;
+  margin-top: 0.15rem;
   text-align: right;
 }
 
 .message.own .message-time {
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--text-muted);
 }
 
 .message-error {
@@ -396,6 +409,8 @@ button.small {
 
 .message-input-form input {
   flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
 }
 
 /* Trust indicators */
@@ -420,6 +435,7 @@ button.small {
 /* Signing status in header */
 .signing-status {
   font-size: 0.65rem;
+  font-family: var(--font-mono);
   color: var(--success);
   letter-spacing: 0.02em;
 }
@@ -535,7 +551,8 @@ button.small {
 }
 
 .invite-kit-label {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
   color: var(--text-muted);
   margin-bottom: 0.25rem;
   text-transform: uppercase;
@@ -557,11 +574,14 @@ button.small {
 
 .invite-kit-value code {
   flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
 }
 
 .invite-kit-warning {
-  color: var(--error);
-  font-size: 0.8rem;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
   margin-top: 1rem;
   font-style: italic;
 }
@@ -604,6 +624,7 @@ button.small {
 }
 
 .room-list-meta code {
+  font-family: var(--font-mono);
   font-size: 0.7rem;
   background: var(--bg-primary);
   padding: 0.1rem 0.3rem;
@@ -628,7 +649,8 @@ button.danger:hover {
 
 /* Connection status */
 .connection-status {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
   padding: 0.25rem 0.5rem;
   border-radius: var(--radius);
   margin-left: auto;
@@ -679,6 +701,6 @@ button.danger:hover {
   }
 
   .message {
-    max-width: 90%;
+    max-width: 100%;
   }
 }
