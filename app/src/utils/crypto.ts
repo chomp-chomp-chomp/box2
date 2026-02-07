@@ -225,3 +225,15 @@ export async function verifySignature(
   const signature = base64ToBytes(signatureB64);
   return crypto.subtle.verify(ECDSA_SIGN_ALGO, publicKey, toArrayBuffer(signature), toArrayBuffer(data));
 }
+
+// Compute a short fingerprint of a JWK public key (first 32 hex chars of SHA-256)
+export async function computeKeyFingerprint(jwk: JsonWebKey): Promise<string> {
+  const encoder = new TextEncoder();
+  // Canonical: sort keys for stable JSON
+  const canonical = JSON.stringify(jwk, Object.keys(jwk).sort());
+  const hash = await crypto.subtle.digest('SHA-256', encoder.encode(canonical));
+  const bytes = new Uint8Array(hash);
+  return Array.from(bytes.slice(0, 16))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}

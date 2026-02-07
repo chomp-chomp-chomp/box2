@@ -13,6 +13,7 @@ import {
   importPublicKeyJwk,
   signMessage,
   verifySignature,
+  computeKeyFingerprint,
 } from '../utils/crypto';
 import {
   getOwnKeypair,
@@ -86,7 +87,7 @@ export default function Room() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const signingKeyRef = useRef<{ privateKey: CryptoKey; publicKeyJwk: JsonWebKey } | null>(null);
+  const signingKeyRef = useRef<{ privateKey: CryptoKey; publicKeyJwk: JsonWebKey; fingerprint: string } | null>(null);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -99,31 +100,31 @@ export default function Room() {
 
     const initKeypair = async () => {
       try {
+        let publicKeyJwk: JsonWebKey;
+        let privateKey: CryptoKey;
+
         const stored = await getOwnKeypair(roomId, displayName);
         if (stored) {
           // Re-import private key from stored JWK
-          const privateKey = await crypto.subtle.importKey(
+          privateKey = await crypto.subtle.importKey(
             'jwk',
             stored.privateKeyJwk,
             { name: 'ECDSA', namedCurve: 'P-256' },
             false,
             ['sign']
           );
-          signingKeyRef.current = {
-            privateKey,
-            publicKeyJwk: stored.publicKeyJwk,
-          };
+          publicKeyJwk = stored.publicKeyJwk;
         } else {
           // Generate new keypair
           const keypair = await generateSigningKeypair();
-          const publicKeyJwk = await exportPublicKeyJwk(keypair.publicKey);
+          publicKeyJwk = await exportPublicKeyJwk(keypair.publicKey);
           const privateKeyJwk = await crypto.subtle.exportKey('jwk', keypair.privateKey);
           await saveOwnKeypair(roomId, displayName, { publicKeyJwk, privateKeyJwk });
-          signingKeyRef.current = {
-            privateKey: keypair.privateKey,
-            publicKeyJwk,
-          };
+          privateKey = keypair.privateKey;
         }
+
+        const fingerprint = await computeKeyFingerprint(publicKeyJwk);
+        signingKeyRef.current = { privateKey, publicKeyJwk, fingerprint };
         setSigningActive(true);
       } catch (err) {
         console.error('Failed to initialize signing keypair:', err);
@@ -322,6 +323,17 @@ export default function Room() {
 
           if (data.type === 'error') {
             console.error('WebSocket error:', data.message);
+            if (data.code === 'name_taken') {
+              setError(data.message);
+              // Force name change — clear stored name and reopen modal
+              if (roomId) {
+                localStorage.removeItem(`displayName:${roomId}`);
+              }
+              setDisplayName('');
+              setSigningActive(false);
+              signingKeyRef.current = null;
+              setShowNameModal(true);
+            }
             return;
           }
 
@@ -413,7 +425,7 @@ export default function Room() {
         payload
       );
 
-      // Send via WebSocket
+      // Send via WebSocket (include senderName + keyFingerprint for server-side name claim)
       wsRef.current.send(
         JSON.stringify({
           type: 'message',
@@ -422,6 +434,8 @@ export default function Room() {
           ivB64,
           ciphertextB64,
           clientTs,
+          senderName: displayName,
+          keyFingerprint: signingKeyRef.current?.fingerprint,
         })
       );
 

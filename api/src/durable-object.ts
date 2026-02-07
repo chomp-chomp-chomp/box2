@@ -15,6 +15,7 @@ interface ClientMessage {
   ivB64: string;
   ciphertextB64: string;
   senderName?: string;
+  keyFingerprint?: string;
   version: number;
 }
 
@@ -28,6 +29,7 @@ export class RecipeRoom extends DurableObject {
   private connectionsByIp: Map<string, number>;
   private rateLimits: Map<string, RateLimitEntry>;
   private env: Env;
+  private initialized: boolean;
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
@@ -35,6 +37,46 @@ export class RecipeRoom extends DurableObject {
     this.connectionsByIp = new Map();
     this.rateLimits = new Map();
     this.env = env;
+    this.initialized = false;
+  }
+
+  private ensureSchema(): void {
+    if (this.initialized) return;
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS name_claims (
+        display_name TEXT PRIMARY KEY,
+        key_fingerprint TEXT NOT NULL,
+        claimed_at TEXT NOT NULL
+      )
+    `);
+    this.initialized = true;
+  }
+
+  // Check if a name is available or belongs to this fingerprint
+  private checkNameClaim(senderName: string, keyFingerprint: string): { ok: boolean; owner?: string } {
+    this.ensureSchema();
+    const row = this.ctx.storage.sql.exec(
+      'SELECT key_fingerprint FROM name_claims WHERE display_name = ?',
+      senderName
+    ).one();
+
+    if (!row) {
+      // Name is unclaimed — register it
+      this.ctx.storage.sql.exec(
+        'INSERT INTO name_claims (display_name, key_fingerprint, claimed_at) VALUES (?, ?, ?)',
+        senderName,
+        keyFingerprint,
+        new Date().toISOString()
+      );
+      return { ok: true };
+    }
+
+    if (row.key_fingerprint === keyFingerprint) {
+      return { ok: true };
+    }
+
+    // Name belongs to a different key
+    return { ok: false, owner: row.key_fingerprint as string };
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -136,6 +178,20 @@ export class RecipeRoom extends DurableObject {
     if (msg.ciphertextB64.length > maxMessageSize) {
       ws.send(JSON.stringify({ type: 'error', message: 'Message too large' }));
       return;
+    }
+
+    // Enforce name uniqueness: if senderName and keyFingerprint are provided,
+    // verify this name belongs to (or is now claimed by) this key
+    if (msg.senderName && msg.keyFingerprint) {
+      const claim = this.checkNameClaim(msg.senderName, msg.keyFingerprint);
+      if (!claim.ok) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          code: 'name_taken',
+          message: `The name "${msg.senderName}" is already claimed by another user in this room.`,
+        }));
+        return;
+      }
     }
 
     // Extract room ID from the Durable Object name
