@@ -26,11 +26,19 @@ export default function Home() {
     setError('');
     setLoading(true);
 
-    const trimmedCode = recipeCode.trim();
+    // Normalize to match slug format: lowercase, spaces/apostrophes handled
+    const trimmedCode = recipeCode
+      .trim()
+      .toLowerCase()
+      .replace(/['']/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
     const trimmedPassphrase = passphrase.trim();
 
     if (!trimmedCode || !trimmedPassphrase) {
-      setError('Please enter both the recipe code and passphrase.');
+      setError('Please enter both the recipe name and passphrase.');
       setLoading(false);
       return;
     }
@@ -78,13 +86,13 @@ export default function Home() {
 
         <form className="home-form" onSubmit={handleSubmit}>
           <div>
-            <label htmlFor="recipe-code">Recipe code</label>
+            <label htmlFor="recipe-code">Recipe name</label>
             <input
               id="recipe-code"
               type="text"
               value={recipeCode}
               onChange={(e) => setRecipeCode(e.target.value)}
-              placeholder="Recipe code"
+              placeholder="e.g. grandmas-cookies"
               autoComplete="off"
               autoCorrect="off"
               autoCapitalize="off"

@@ -103,8 +103,22 @@ export default {
       // POST /api/admin/rooms - Create new room
       if (url.pathname === '/api/admin/rooms' && request.method === 'POST') {
         try {
-          const body = await request.json() as { title?: string; kdfIters?: number };
-          const roomId = generateRoomId();
+          const body = await request.json() as { title?: string; slug?: string; kdfIters?: number };
+
+          let roomId: string;
+          if (body.slug) {
+            const slug = body.slug.toLowerCase().trim();
+            if (!/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(slug)) {
+              return errorResponse('Recipe name must be 3-64 characters, lowercase letters, numbers, and hyphens only', 400);
+            }
+            const existing = await env.DB.prepare('SELECT room_id FROM rooms WHERE room_id = ?').bind(slug).first();
+            if (existing) {
+              return errorResponse('A recipe with that name already exists', 409);
+            }
+            roomId = slug;
+          } else {
+            roomId = generateRoomId();
+          }
           const saltB64 = generateSalt();
           const kdfIters = body.kdfIters || 100000;
           const title = body.title || null;
