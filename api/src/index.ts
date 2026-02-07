@@ -23,12 +23,13 @@ function corsResponse(response: Response): Response {
   });
 }
 
-function jsonResponse(data: any, status = 200): Response {
+function jsonResponse(data: any, status = 200, cacheSeconds = 0): Response {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (cacheSeconds > 0) {
+    headers['Cache-Control'] = `public, max-age=${cacheSeconds}`;
+  }
   return corsResponse(
-    new Response(JSON.stringify(data), {
-      status,
-      headers: { 'Content-Type': 'application/json' },
-    })
+    new Response(JSON.stringify(data), { status, headers })
   );
 }
 
@@ -76,6 +77,27 @@ export default {
         requireAdminAuth(request, env);
       } catch (err) {
         return errorResponse('Unauthorized', 401);
+      }
+
+      // GET /api/admin/rooms - List all rooms
+      if (url.pathname === '/api/admin/rooms' && request.method === 'GET') {
+        try {
+          const result = await env.DB.prepare(
+            'SELECT r.room_id, r.title, r.version, r.created_at, COUNT(m.msg_id) as message_count FROM rooms r LEFT JOIN messages m ON r.room_id = m.room_id GROUP BY r.room_id ORDER BY r.created_at DESC'
+          ).all();
+
+          const rooms = (result.results || []).map((row: any) => ({
+            roomId: row.room_id,
+            title: row.title,
+            version: row.version,
+            createdAt: row.created_at,
+            messageCount: row.message_count,
+          }));
+
+          return jsonResponse({ rooms });
+        } catch (err) {
+          return errorResponse('Failed to list rooms', 500);
+        }
       }
 
       // POST /api/admin/rooms - Create new room
@@ -157,6 +179,33 @@ export default {
         }
       }
 
+      // DELETE /api/admin/rooms/:roomId - Delete room and all its messages
+      const deleteMatch = url.pathname.match(/^\/api\/admin\/rooms\/([^/]+)$/);
+      if (deleteMatch && request.method === 'DELETE') {
+        const roomId = decodeURIComponent(deleteMatch[1]);
+        try {
+          const room = await env.DB.prepare('SELECT room_id FROM rooms WHERE room_id = ?')
+            .bind(roomId)
+            .first();
+
+          if (!room) {
+            return errorResponse('Room not found', 404);
+          }
+
+          // Delete messages first, then the room
+          await env.DB.prepare('DELETE FROM messages WHERE room_id = ?')
+            .bind(roomId)
+            .run();
+          await env.DB.prepare('DELETE FROM rooms WHERE room_id = ?')
+            .bind(roomId)
+            .run();
+
+          return jsonResponse({ success: true, roomId });
+        } catch (err) {
+          return errorResponse('Failed to delete room', 500);
+        }
+      }
+
       return errorResponse('Not found', 404);
     }
 
@@ -179,7 +228,7 @@ export default {
           saltB64: room.salt_b64,
           kdfIters: room.kdf_iters,
           version: room.version,
-        });
+        }, 200, 60);
       } catch (err) {
         return errorResponse('Failed to fetch room', 500);
       }
