@@ -88,12 +88,16 @@ export default function Room() {
   const [signingActive, setSigningActive] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const signingKeyRef = useRef<{ privateKey: CryptoKey; publicKeyJwk: JsonWebKey; fingerprint: string } | null>(null);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [messages]);
 
   // Initialize signing keypair when displayName and roomId are set
@@ -607,7 +611,7 @@ export default function Room() {
       </div>
 
       {/* Messages */}
-      <div className="messages-container">
+      <div className="messages-container" ref={messagesContainerRef}>
         {messages.map((msg) => (
           <div
             key={msg.msgId}
