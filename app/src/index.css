@@ -54,6 +54,8 @@
 
 html, body {
   height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
   padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
 }
 
@@ -65,6 +67,8 @@ body {
   color: var(--color-text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  position: fixed;
+  width: 100%;
 }
 
 #root {
@@ -161,6 +165,7 @@ a:hover {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh;
   padding: var(--spacing-lg);
 }
 
@@ -283,7 +288,7 @@ a:hover {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  max-height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -323,6 +328,8 @@ a:hover {
 .messages-container {
   flex: 1;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding: var(--spacing-lg);
   display: flex;
   flex-direction: column;
@@ -389,6 +396,7 @@ a:hover {
 }
 
 .message-input-container {
+  flex-shrink: 0;
   padding: var(--spacing-md);
   padding-bottom: calc(var(--spacing-md) + var(--safe-bottom));
   border-top: 1px solid var(--color-border);
