@@ -10,13 +10,14 @@ interface Env {
 }
 
 interface ClientMessage {
-  type: 'message';
-  msgId: string;
-  ivB64: string;
-  ciphertextB64: string;
+  type: 'message' | 'typing' | 'delete' | 'presence';
+  msgId?: string;
+  ivB64?: string;
+  ciphertextB64?: string;
   senderName?: string;
   keyFingerprint?: string;
-  version: number;
+  version?: number;
+  displayName?: string;
 }
 
 interface RateLimitEntry {
@@ -24,8 +25,13 @@ interface RateLimitEntry {
   resetAt: number;
 }
 
+interface ConnectionMeta {
+  ip: string;
+  displayName: string | null;
+}
+
 export class RecipeRoom extends DurableObject {
-  private connections: Set<WebSocket>;
+  private connections: Map<WebSocket, ConnectionMeta>;
   private connectionsByIp: Map<string, number>;
   private rateLimits: Map<string, RateLimitEntry>;
   private env: Env;
@@ -34,7 +40,7 @@ export class RecipeRoom extends DurableObject {
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
-    this.connections = new Set();
+    this.connections = new Map();
     this.connectionsByIp = new Map();
     this.rateLimits = new Map();
     this.env = env;
@@ -82,6 +88,28 @@ export class RecipeRoom extends DurableObject {
     return { ok: false, owner: row.key_fingerprint as string };
   }
 
+  private getOnlineNames(): string[] {
+    const names = new Set<string>();
+    this.connections.forEach((meta) => {
+      if (meta.displayName) names.add(meta.displayName);
+    });
+    return Array.from(names);
+  }
+
+  private broadcastPresence(): void {
+    const members = this.getOnlineNames();
+    const msg = JSON.stringify({
+      type: 'presence',
+      members,
+      connectionCount: this.connections.size,
+    });
+    this.connections.forEach((_, client) => {
+      try {
+        if (client.readyState === 1) client.send(msg);
+      } catch { /* ignore */ }
+    });
+  }
+
   async fetch(request: Request): Promise<Response> {
     const upgradeHeader = request.headers.get('Upgrade');
     if (upgradeHeader !== 'websocket') {
@@ -121,26 +149,29 @@ export class RecipeRoom extends DurableObject {
 
   async handleSession(ws: WebSocket, ip: string): Promise<void> {
     ws.accept();
-    this.connections.add(ws);
+    this.connections.set(ws, { ip, displayName: null });
 
     const currentCount = this.connectionsByIp.get(ip) || 0;
     this.connectionsByIp.set(ip, currentCount + 1);
 
-    // Send connection confirmation with diagnostics
+    // Send connection confirmation with current members
     const roomId = this.roomId || this.ctx.id.name || 'unknown';
     ws.send(JSON.stringify({
       type: 'connected',
       connectionCount: this.connections.size,
+      members: this.getOnlineNames(),
       roomId,
     }));
 
-    // Notify all OTHER connections about the new peer count
-    this.connections.forEach((client) => {
+    // Notify others about updated count
+    this.connections.forEach((_, client) => {
       if (client !== ws && client.readyState === 1) {
-        client.send(JSON.stringify({
-          type: 'peer_count',
-          connectionCount: this.connections.size,
-        }));
+        try {
+          client.send(JSON.stringify({
+            type: 'peer_count',
+            connectionCount: this.connections.size,
+          }));
+        } catch { /* ignore */ }
       }
     });
 
@@ -153,7 +184,7 @@ export class RecipeRoom extends DurableObject {
       }
     });
 
-    ws.addEventListener('close', () => {
+    const cleanup = () => {
       this.connections.delete(ws);
       const count = this.connectionsByIp.get(ip) || 0;
       if (count <= 1) {
@@ -161,38 +192,63 @@ export class RecipeRoom extends DurableObject {
       } else {
         this.connectionsByIp.set(ip, count - 1);
       }
-      // Notify remaining connections about updated peer count
-      this.connections.forEach((client) => {
-        if (client.readyState === 1) {
-          client.send(JSON.stringify({
-            type: 'peer_count',
-            connectionCount: this.connections.size,
-          }));
-        }
-      });
-    });
+      this.broadcastPresence();
+    };
 
-    ws.addEventListener('error', () => {
-      this.connections.delete(ws);
-      const count = this.connectionsByIp.get(ip) || 0;
-      if (count <= 1) {
-        this.connectionsByIp.delete(ip);
-      } else {
-        this.connectionsByIp.set(ip, count - 1);
-      }
-      // Notify remaining connections about updated peer count
-      this.connections.forEach((client) => {
-        if (client.readyState === 1) {
-          client.send(JSON.stringify({
-            type: 'peer_count',
-            connectionCount: this.connections.size,
-          }));
-        }
-      });
-    });
+    ws.addEventListener('close', cleanup);
+    ws.addEventListener('error', cleanup);
   }
 
   async handleMessage(ws: WebSocket, ip: string, data: any): Promise<void> {
+    // Handle presence announcement (display name registration)
+    if (data.type === 'presence' && data.displayName) {
+      const meta = this.connections.get(ws);
+      if (meta) {
+        meta.displayName = data.displayName;
+        this.connections.set(ws, meta);
+        this.broadcastPresence();
+      }
+      return;
+    }
+
+    // Handle typing indicator — relay to others
+    if (data.type === 'typing') {
+      const msg = JSON.stringify({
+        type: 'typing',
+        displayName: data.displayName,
+      });
+      this.connections.forEach((_, client) => {
+        if (client !== ws && client.readyState === 1) {
+          try { client.send(msg); } catch { /* ignore */ }
+        }
+      });
+      return;
+    }
+
+    // Handle message deletion — relay to all
+    if (data.type === 'delete' && data.msgId) {
+      const deleteMsg = JSON.stringify({
+        type: 'delete',
+        msgId: data.msgId,
+        senderName: data.senderName,
+      });
+      this.connections.forEach((_, client) => {
+        if (client.readyState === 1) {
+          try { client.send(deleteMsg); } catch { /* ignore */ }
+        }
+      });
+      // Also delete from D1
+      const roomId = this.roomId || this.ctx.id.name || 'unknown';
+      try {
+        await this.env.DB.prepare(
+          'DELETE FROM messages WHERE room_id = ? AND msg_id = ?'
+        ).bind(roomId, data.msgId).run();
+      } catch (err) {
+        console.error('Failed to delete message from D1:', err);
+      }
+      return;
+    }
+
     // Rate limiting
     const maxMessagesPerMinute = this.env.RATE_LIMIT?.MAX_MESSAGES_PER_MINUTE || 30;
     const now = Date.now();
@@ -267,7 +323,7 @@ export class RecipeRoom extends DurableObject {
 
     // Broadcast to all connected clients FIRST (real-time delivery)
     const messageStr = JSON.stringify(broadcastMsg);
-    this.connections.forEach((client) => {
+    this.connections.forEach((_, client) => {
       try {
         if (client.readyState === 1) {
           client.send(messageStr);
