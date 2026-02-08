@@ -184,7 +184,10 @@ export class RecipeRoom extends DurableObject {
       }
     });
 
+    let cleanedUp = false;
     const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
       this.connections.delete(ws);
       const count = this.connectionsByIp.get(ip) || 0;
       if (count <= 1) {
@@ -200,56 +203,7 @@ export class RecipeRoom extends DurableObject {
   }
 
   async handleMessage(ws: WebSocket, ip: string, data: any): Promise<void> {
-    // Handle presence announcement (display name registration)
-    if (data.type === 'presence' && data.displayName) {
-      const meta = this.connections.get(ws);
-      if (meta) {
-        meta.displayName = data.displayName;
-        this.connections.set(ws, meta);
-        this.broadcastPresence();
-      }
-      return;
-    }
-
-    // Handle typing indicator — relay to others
-    if (data.type === 'typing') {
-      const msg = JSON.stringify({
-        type: 'typing',
-        displayName: data.displayName,
-      });
-      this.connections.forEach((_, client) => {
-        if (client !== ws && client.readyState === 1) {
-          try { client.send(msg); } catch { /* ignore */ }
-        }
-      });
-      return;
-    }
-
-    // Handle message deletion — relay to all
-    if (data.type === 'delete' && data.msgId) {
-      const deleteMsg = JSON.stringify({
-        type: 'delete',
-        msgId: data.msgId,
-        senderName: data.senderName,
-      });
-      this.connections.forEach((_, client) => {
-        if (client.readyState === 1) {
-          try { client.send(deleteMsg); } catch { /* ignore */ }
-        }
-      });
-      // Also delete from D1
-      const roomId = this.roomId || this.ctx.id.name || 'unknown';
-      try {
-        await this.env.DB.prepare(
-          'DELETE FROM messages WHERE room_id = ? AND msg_id = ?'
-        ).bind(roomId, data.msgId).run();
-      } catch (err) {
-        console.error('Failed to delete message from D1:', err);
-      }
-      return;
-    }
-
-    // Rate limiting
+    // Rate limiting — applies to all message types
     const maxMessagesPerMinute = this.env.RATE_LIMIT?.MAX_MESSAGES_PER_MINUTE || 30;
     const now = Date.now();
     const rateLimit = this.rateLimits.get(ip);
@@ -263,11 +217,87 @@ export class RecipeRoom extends DurableObject {
     } else {
       this.rateLimits.set(ip, {
         count: 1,
-        resetAt: now + 60000, // 1 minute
+        resetAt: now + 60000,
       });
     }
 
-    // Validate message
+    // Handle presence announcement (display name registration)
+    if (data.type === 'presence' && data.displayName) {
+      const meta = this.connections.get(ws);
+      if (meta) {
+        meta.displayName = data.displayName;
+        this.connections.set(ws, meta);
+        this.broadcastPresence();
+      }
+      return;
+    }
+
+    // Handle typing indicator — use server-side metadata, not client claims
+    if (data.type === 'typing') {
+      const meta = this.connections.get(ws);
+      const senderName = meta?.displayName;
+      if (!senderName) return;
+      const msg = JSON.stringify({
+        type: 'typing',
+        displayName: senderName,
+      });
+      this.connections.forEach((_, client) => {
+        if (client !== ws && client.readyState === 1) {
+          try { client.send(msg); } catch { /* ignore */ }
+        }
+      });
+      return;
+    }
+
+    // Handle message deletion — verify sender owns the message
+    if (data.type === 'delete' && data.msgId) {
+      const meta = this.connections.get(ws);
+      const senderName = meta?.displayName;
+      if (!senderName) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Must set display name before deleting' }));
+        return;
+      }
+
+      const roomId = this.roomId || this.ctx.id.name || 'unknown';
+
+      // Verify the message belongs to this sender
+      try {
+        const result = await this.env.DB.prepare(
+          'SELECT sender_name FROM messages WHERE room_id = ? AND msg_id = ?'
+        ).bind(roomId, data.msgId).first();
+
+        if (!result || result.sender_name !== senderName) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Cannot delete messages from other users' }));
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to verify message ownership:', err);
+        ws.send(JSON.stringify({ type: 'error', message: 'Failed to verify message ownership' }));
+        return;
+      }
+
+      const deleteMsg = JSON.stringify({
+        type: 'delete',
+        msgId: data.msgId,
+        senderName,
+      });
+      this.connections.forEach((_, client) => {
+        if (client.readyState === 1) {
+          try { client.send(deleteMsg); } catch { /* ignore */ }
+        }
+      });
+      // Delete from D1
+      try {
+        await this.env.DB.prepare(
+          'DELETE FROM messages WHERE room_id = ? AND msg_id = ?'
+        ).bind(roomId, data.msgId).run();
+      } catch (err) {
+        console.error('Failed to delete message from D1:', err);
+      }
+      return;
+    }
+
+    // Validate message type
     if (data.type !== 'message') {
       ws.send(JSON.stringify({ type: 'error', message: 'Invalid message type' }));
       return;

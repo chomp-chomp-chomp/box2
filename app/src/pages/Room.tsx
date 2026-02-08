@@ -112,6 +112,7 @@ export default function Room() {
   const signingKeyRef = useRef<{ privateKey: CryptoKey; publicKeyJwk: JsonWebKey; fingerprint: string } | null>(null);
   const sendQueueRef = useRef<QueuedMessage[]>([]);
   const lastTypingSentRef = useRef(0);
+  const typingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -304,7 +305,7 @@ export default function Room() {
         text: payload.text,
         clientTs: payload.clientTs,
         createdAt: msg.createdAt,
-        isOwn: false,
+        isOwn: payload.displayName === displayName,
         trustStatus,
       };
     } catch {
@@ -382,19 +383,23 @@ export default function Room() {
 
           if (data.type === 'typing') {
             if (data.displayName && data.displayName !== displayName) {
+              const name = data.displayName;
               setTypingUsers((prev) => {
                 const next = new Set(prev);
-                next.add(data.displayName);
+                next.add(name);
                 return next;
               });
-              // Clear after 3s
-              setTimeout(() => {
+              // Clear previous timeout for this user, set new one
+              const existing = typingTimeoutsRef.current.get(name);
+              if (existing) clearTimeout(existing);
+              typingTimeoutsRef.current.set(name, setTimeout(() => {
+                typingTimeoutsRef.current.delete(name);
                 setTypingUsers((prev) => {
                   const next = new Set(prev);
-                  next.delete(data.displayName);
+                  next.delete(name);
                   return next;
                 });
-              }, 3000);
+              }, 3000));
             }
             return;
           }
@@ -466,6 +471,9 @@ export default function Room() {
         wsRef.current.close();
         wsRef.current = null;
       }
+      // Clean up typing timeouts
+      typingTimeoutsRef.current.forEach((t) => clearTimeout(t));
+      typingTimeoutsRef.current.clear();
     };
   }, [room, cryptoKey, displayName, showNameModal, flushSendQueue]);
 
@@ -572,14 +580,12 @@ export default function Room() {
     }
   };
 
-  // Delete a message
+  // Delete a message — requires active connection for server-side authorization
   const deleteMessage = (msgId: string) => {
     const ws = wsRef.current;
-    if (ws && ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: 'delete', msgId, senderName: displayName }));
-    }
-    setMessages((current) => current.filter((m) => m.msgId !== msgId));
-    if (roomId) removeCachedMessage(roomId, msgId);
+    if (!ws || ws.readyState !== 1) return; // Don't delete locally without server confirmation
+    ws.send(JSON.stringify({ type: 'delete', msgId, senderName: displayName }));
+    // Local removal happens when we receive the delete broadcast back from the server
   };
 
   // Set display name
@@ -761,6 +767,7 @@ export default function Room() {
                   className="message-delete"
                   onClick={() => deleteMessage(msg.msgId)}
                   title="Delete message"
+                  aria-label="Delete message"
                 >
                   &times;
                 </button>
