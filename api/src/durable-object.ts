@@ -57,12 +57,12 @@ export class RecipeRoom extends DurableObject {
   // Check if a name is available or belongs to this fingerprint
   private checkNameClaim(senderName: string, keyFingerprint: string): { ok: boolean; owner?: string } {
     this.ensureSchema();
-    const row = this.ctx.storage.sql.exec(
+    const rows = this.ctx.storage.sql.exec(
       'SELECT key_fingerprint FROM name_claims WHERE display_name = ?',
       senderName
-    ).one();
+    ).toArray();
 
-    if (!row) {
+    if (rows.length === 0) {
       // Name is unclaimed — register it
       this.ctx.storage.sql.exec(
         'INSERT INTO name_claims (display_name, key_fingerprint, claimed_at) VALUES (?, ?, ?)',
@@ -73,6 +73,7 @@ export class RecipeRoom extends DurableObject {
       return { ok: true };
     }
 
+    const row = rows[0];
     if (row.key_fingerprint === keyFingerprint) {
       return { ok: true };
     }
@@ -267,8 +268,13 @@ export class RecipeRoom extends DurableObject {
     // Broadcast to all connected clients FIRST (real-time delivery)
     const messageStr = JSON.stringify(broadcastMsg);
     this.connections.forEach((client) => {
-      if (client.readyState === 1) {
-        client.send(messageStr);
+      try {
+        if (client.readyState === 1) {
+          client.send(messageStr);
+        }
+      } catch (err) {
+        console.error('Failed to send to client:', err);
+        this.connections.delete(client);
       }
     });
 

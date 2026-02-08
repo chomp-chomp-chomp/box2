@@ -377,33 +377,24 @@ export default function Room() {
           }
 
           if (data.type === 'message') {
-            // Don't add if we already have this message
-            setMessages((prev) => {
-              if (prev.some((m) => m.msgId === data.msgId)) {
-                return prev;
-              }
-
-              // Decrypt asynchronously and update
-              decryptMessage(data, room.roomId, cryptoKey).then((decrypted) => {
-                setMessages((current) => {
-                  // Check again in case it was added while decrypting
-                  if (current.some((m) => m.msgId === data.msgId)) {
-                    return current;
-                  }
-                  // Cache the new message
-                  appendCachedMessage(room.roomId, {
-                    msgId: decrypted.msgId,
-                    displayName: decrypted.displayName,
-                    text: decrypted.text,
-                    clientTs: decrypted.clientTs,
-                    createdAt: decrypted.createdAt,
-                  });
-                  return [...current, decrypted];
+            try {
+              const decrypted = await decryptMessage(data, room.roomId, cryptoKey);
+              setMessages((current) => {
+                if (current.some((m) => m.msgId === data.msgId)) {
+                  return current;
+                }
+                appendCachedMessage(room.roomId, {
+                  msgId: decrypted.msgId,
+                  displayName: decrypted.displayName,
+                  text: decrypted.text,
+                  clientTs: decrypted.clientTs,
+                  createdAt: decrypted.createdAt,
                 });
+                return [...current, decrypted];
               });
-
-              return prev;
-            });
+            } catch (err) {
+              console.error('Failed to decrypt incoming message:', err);
+            }
           }
         } catch (err) {
           console.error('Failed to process message:', err);
