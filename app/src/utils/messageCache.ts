@@ -39,3 +39,11 @@ export function appendCachedMessage(roomId: string, msg: CachedMessage): void {
   existing.push(msg);
   setCachedMessages(roomId, existing);
 }
+
+export function removeCachedMessage(roomId: string, msgId: string): void {
+  const existing = getCachedMessages(roomId);
+  const filtered = existing.filter((m) => m.msgId !== msgId);
+  if (filtered.length !== existing.length) {
+    setCachedMessages(roomId, filtered);
+  }
+}

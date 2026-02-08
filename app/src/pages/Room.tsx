@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, FormEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, FormEvent } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getRoom, getHistory, getWebSocketUrl, RoomInfo, HistoryMessage } from '../utils/api';
 import { saveRecentRoom } from '../utils/recentRooms';
-import { getCachedMessages, setCachedMessages, appendCachedMessage } from '../utils/messageCache';
+import { getCachedMessages, setCachedMessages, appendCachedMessage, removeCachedMessage } from '../utils/messageCache';
 import {
   deriveKeyPBKDF2,
   encryptPayload,
@@ -33,7 +33,20 @@ interface DecryptedMessage {
   createdAt: string;
   isOwn: boolean;
   error?: boolean;
+  deleted?: boolean;
   trustStatus: TrustStatus;
+}
+
+interface QueuedMessage {
+  msgId: string;
+  version: number;
+  ivB64: string;
+  ciphertextB64: string;
+  senderName: string;
+  keyFingerprint: string;
+  displayName: string;
+  text: string;
+  clientTs: number;
 }
 
 function TrustIndicator({ status }: { status: TrustStatus }) {
@@ -70,6 +83,10 @@ function TrustIndicator({ status }: { status: TrustStatus }) {
   }
 }
 
+function formatFingerprint(fp: string): string {
+  return fp.match(/.{1,4}/g)?.join(' ') || fp;
+}
+
 export default function Room() {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
@@ -82,6 +99,11 @@ export default function Room() {
   const [showNameModal, setShowNameModal] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
   const [peerCount, setPeerCount] = useState(0);
+  const [onlineMembers, setOnlineMembers] = useState<string[]>([]);
+  const [showMembers, setShowMembers] = useState(false);
+  const [showKeyInfo, setShowKeyInfo] = useState(false);
+  const [viewingKeyUser, setViewingKeyUser] = useState<{ name: string; fingerprint: string } | null>(null);
+  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -89,8 +111,10 @@ export default function Room() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const signingKeyRef = useRef<{ privateKey: CryptoKey; publicKeyJwk: JsonWebKey; fingerprint: string } | null>(null);
+  const sendQueueRef = useRef<QueuedMessage[]>([]);
+  const lastTypingSentRef = useRef(0);
+  const typingTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -111,7 +135,6 @@ export default function Room() {
 
         const stored = await getOwnKeypair(roomId, displayName);
         if (stored) {
-          // Re-import private key from stored JWK
           privateKey = await crypto.subtle.importKey(
             'jwk',
             stored.privateKeyJwk,
@@ -121,7 +144,6 @@ export default function Room() {
           );
           publicKeyJwk = stored.publicKeyJwk;
         } else {
-          // Generate new keypair
           const keypair = await generateSigningKeypair();
           publicKeyJwk = await exportPublicKeyJwk(keypair.publicKey);
           const privateKeyJwk = await crypto.subtle.exportKey('jwk', keypair.privateKey);
@@ -148,21 +170,18 @@ export default function Room() {
         return;
       }
 
-      // Get stored credentials (check localStorage, fall back to sessionStorage for migration)
       const stored = localStorage.getItem(`recipe:${roomId}`) || sessionStorage.getItem(`recipe:${roomId}`);
       if (!stored) {
         navigate('/');
         return;
       }
 
-      // Migrate sessionStorage to localStorage if needed
       if (!localStorage.getItem(`recipe:${roomId}`) && sessionStorage.getItem(`recipe:${roomId}`)) {
         localStorage.setItem(`recipe:${roomId}`, stored);
       }
 
       const { passphrase: storedPassphrase } = JSON.parse(stored);
 
-      // Get stored display name
       const storedName = localStorage.getItem(`displayName:${roomId}`);
       if (storedName) {
         setDisplayName(storedName);
@@ -170,7 +189,6 @@ export default function Room() {
         setShowNameModal(true);
       }
 
-      // Show cached messages immediately while we load fresh data
       const cached = getCachedMessages(roomId);
       if (cached.length > 0) {
         setMessages(cached.map((m) => ({
@@ -183,24 +201,17 @@ export default function Room() {
       }
 
       try {
-        // Fetch room metadata
         const roomInfo = await getRoom(roomId);
         setRoom(roomInfo);
-
-        // Track this room for quick switching
         saveRecentRoom(roomId, roomInfo.title || 'Untitled Recipe');
 
-        // Derive encryption key
         const key = await deriveKeyPBKDF2(
           storedPassphrase,
           roomInfo.saltB64,
           roomInfo.kdfIters
         );
         setCryptoKey(key);
-
-        // Load history (will replace cached messages with verified ones)
         await loadHistory(roomId, key);
-
         setLoading(false);
       } catch (err) {
         console.error('Failed to load room:', err);
@@ -218,16 +229,12 @@ export default function Room() {
     msgId: string,
     currentRoomId: string
   ): Promise<TrustStatus> => {
-    // No signature = legacy unsigned message
     if (!payload.signatureB64 || !payload.senderPublicKeyJwk) {
       return 'unsigned';
     }
 
     try {
-      // Import the sender's public key from the payload
       const senderKey = await importPublicKeyJwk(payload.senderPublicKeyJwk);
-
-      // Verify the signature
       const valid = await verifySignature(
         senderKey,
         payload.signatureB64,
@@ -237,15 +244,11 @@ export default function Room() {
         msgId
       );
 
-      if (!valid) {
-        return 'mismatch';
-      }
+      if (!valid) return 'mismatch';
 
-      // Check trust store
       const trusted = await getTrustedKey(currentRoomId, payload.displayName);
 
       if (!trusted) {
-        // First time seeing this user — store key (TOFU)
         await saveTrustedKey(currentRoomId, payload.displayName, payload.senderPublicKeyJwk);
         return 'new';
       }
@@ -254,7 +257,6 @@ export default function Room() {
         return 'verified';
       }
 
-      // Key mismatch — possible impersonation
       return 'mismatch';
     } catch (err) {
       console.error('Signature verification failed:', err);
@@ -263,20 +265,12 @@ export default function Room() {
   };
 
   // Load message history
-  const loadHistory = async (
-    currentRoomId: string,
-    key: CryptoKey,
-  ) => {
+  const loadHistory = async (currentRoomId: string, key: CryptoKey) => {
     try {
-      // Don't filter by version so we get all messages regardless of passphrase rotation
-      const { messages: historyMessages } = await getHistory(currentRoomId, {
-        limit: 50,
-      });
+      const { messages: historyMessages } = await getHistory(currentRoomId, { limit: 50 });
 
       const decrypted = await Promise.all(
-        historyMessages.map(async (msg) => {
-          return decryptMessage(msg, currentRoomId, key);
-        })
+        historyMessages.map(async (msg) => decryptMessage(msg, currentRoomId, key))
       );
 
       // Only update messages and cache if we got results (don't overwrite cache with empty)
@@ -304,23 +298,16 @@ export default function Room() {
   ): Promise<DecryptedMessage> => {
     try {
       const payload = await decryptPayload(
-        key,
-        currentRoomId,
-        msg.version,
-        msg.msgId,
-        msg.ivB64,
-        msg.ciphertextB64
+        key, currentRoomId, msg.version, msg.msgId, msg.ivB64, msg.ciphertextB64
       );
-
       const trustStatus = await verifyAndCheckTrust(payload, msg.msgId, currentRoomId);
-
       return {
         msgId: msg.msgId,
         displayName: payload.displayName,
         text: payload.text,
         clientTs: payload.clientTs,
         createdAt: msg.createdAt,
-        isOwn: false,
+        isOwn: payload.displayName === displayName,
         trustStatus,
       };
     } catch {
@@ -337,6 +324,27 @@ export default function Room() {
     }
   };
 
+  // Flush offline send queue
+  const flushSendQueue = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== 1) return;
+
+    const queue = sendQueueRef.current;
+    sendQueueRef.current = [];
+
+    for (const item of queue) {
+      ws.send(JSON.stringify({
+        type: 'message',
+        msgId: item.msgId,
+        version: item.version,
+        ivB64: item.ivB64,
+        ciphertextB64: item.ciphertextB64,
+        senderName: item.senderName,
+        keyFingerprint: item.keyFingerprint,
+      }));
+    }
+  }, []);
+
   // Connect WebSocket
   useEffect(() => {
     if (!room || !cryptoKey || !displayName || showNameModal) return;
@@ -348,6 +356,10 @@ export default function Room() {
 
       ws.onopen = () => {
         setConnectionStatus('connected');
+        // Announce our display name for presence
+        ws.send(JSON.stringify({ type: 'presence', displayName }));
+        // Flush any queued messages
+        flushSendQueue();
       };
 
       ws.onmessage = async (event) => {
@@ -356,6 +368,7 @@ export default function Room() {
 
           if (data.type === 'connected') {
             setPeerCount(data.connectionCount || 0);
+            if (data.members) setOnlineMembers(data.members);
             return;
           }
 
@@ -364,11 +377,49 @@ export default function Room() {
             return;
           }
 
+          if (data.type === 'presence') {
+            if (data.members) setOnlineMembers(data.members);
+            setPeerCount(data.connectionCount || 0);
+            return;
+          }
+
+          if (data.type === 'typing') {
+            if (data.displayName && data.displayName !== displayName) {
+              const name = data.displayName;
+              setTypingUsers((prev) => {
+                const next = new Set(prev);
+                next.add(name);
+                return next;
+              });
+              // Clear previous timeout for this user, set new one
+              const existing = typingTimeoutsRef.current.get(name);
+              if (existing) clearTimeout(existing);
+              typingTimeoutsRef.current.set(name, setTimeout(() => {
+                typingTimeoutsRef.current.delete(name);
+                setTypingUsers((prev) => {
+                  const next = new Set(prev);
+                  next.delete(name);
+                  return next;
+                });
+              }, 3000));
+            }
+            return;
+          }
+
+          if (data.type === 'delete') {
+            setMessages((current) => current.map((m) =>
+              m.msgId === data.msgId
+                ? { ...m, text: '', deleted: true, error: false }
+                : m
+            ));
+            if (roomId) removeCachedMessage(roomId, data.msgId);
+            return;
+          }
+
           if (data.type === 'error') {
             console.error('WebSocket error:', data.message);
             if (data.code === 'name_taken') {
               setError(data.message);
-              // Force name change — clear stored name and reopen modal
               if (roomId) {
                 localStorage.removeItem(`displayName:${roomId}`);
               }
@@ -407,7 +458,6 @@ export default function Room() {
 
       ws.onclose = () => {
         setConnectionStatus('disconnected');
-        // Reconnect after delay
         setTimeout(() => {
           if (wsRef.current === ws) {
             connect();
@@ -427,15 +477,36 @@ export default function Room() {
         wsRef.current.close();
         wsRef.current = null;
       }
+      // Clean up typing timeouts
+      typingTimeoutsRef.current.forEach((t) => clearTimeout(t));
+      typingTimeoutsRef.current.clear();
     };
-  }, [room, cryptoKey, displayName, showNameModal]);
+  }, [room, cryptoKey, displayName, showNameModal, flushSendQueue]);
 
-  // Send message
+  // Send typing indicator (throttled to once per 2s)
+  const sendTypingIndicator = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== 1) return;
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < 2000) return;
+    lastTypingSentRef.current = now;
+    ws.send(JSON.stringify({ type: 'typing', displayName }));
+  }, [displayName]);
+
+  // Handle input change with typing indicator
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setMessageInput(e.target.value);
+    if (e.target.value.trim()) {
+      sendTypingIndicator();
+    }
+  };
+
+  // Send message (or queue if offline)
   const sendMessage = async (e: FormEvent) => {
     e.preventDefault();
 
     const text = messageInput.trim();
-    if (!text || !room || !cryptoKey || !wsRef.current || !signingKeyRef.current) return;
+    if (!text || !room || !cryptoKey || !signingKeyRef.current) return;
 
     const msgId = generateMsgId();
     const clientTs = Date.now();
@@ -446,7 +517,6 @@ export default function Room() {
       clientTs,
     };
 
-    // Sign the message if we have a signing key
     if (signingKeyRef.current) {
       payload.signatureB64 = await signMessage(
         signingKeyRef.current.privateKey,
@@ -460,30 +530,39 @@ export default function Room() {
 
     try {
       const { ivB64, ciphertextB64 } = await encryptPayload(
-        cryptoKey,
-        room.roomId,
-        room.version,
-        msgId,
-        payload
+        cryptoKey, room.roomId, room.version, msgId, payload
       );
 
-      // Send via WebSocket (include senderName + keyFingerprint for server-side name claim)
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'message',
+      const wsPayload = {
+        type: 'message',
+        msgId,
+        version: room.version,
+        ivB64,
+        ciphertextB64,
+        senderName: displayName,
+        keyFingerprint: signingKeyRef.current?.fingerprint,
+      };
+
+      const ws = wsRef.current;
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify(wsPayload));
+      } else {
+        // Queue for later
+        sendQueueRef.current.push({
           msgId,
           version: room.version,
           ivB64,
           ciphertextB64,
-          clientTs,
           senderName: displayName,
-          keyFingerprint: signingKeyRef.current?.fingerprint,
-        })
-      );
+          keyFingerprint: signingKeyRef.current?.fingerprint || '',
+          displayName,
+          text,
+          clientTs,
+        });
+      }
 
       const createdAt = new Date().toISOString();
 
-      // Optimistically add to local messages
       setMessages((prev) => [
         ...prev,
         {
@@ -497,18 +576,42 @@ export default function Room() {
         },
       ]);
 
-      // Cache sent message
       appendCachedMessage(room.roomId, {
-        msgId,
-        displayName,
-        text,
-        clientTs,
-        createdAt,
+        msgId, displayName, text, clientTs, createdAt,
       });
 
       setMessageInput('');
     } catch (err) {
       console.error('Failed to send message:', err);
+    }
+  };
+
+  // Delete a message — requires active connection for server-side authorization
+  const deleteMessage = (msgId: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== 1) return; // Don't delete locally without server confirmation
+    ws.send(JSON.stringify({ type: 'delete', msgId, senderName: displayName }));
+    // Local removal happens when we receive the delete broadcast back from the server
+  };
+
+  // View a user's key fingerprint
+  const viewUserKey = async (name: string) => {
+    if (!roomId) return;
+    if (name === displayName && signingKeyRef.current) {
+      // Show own key
+      setViewingKeyUser({ name, fingerprint: signingKeyRef.current.fingerprint });
+      setShowKeyInfo(true);
+      return;
+    }
+    try {
+      const trusted = await getTrustedKey(roomId, name);
+      if (trusted) {
+        const fp = await computeKeyFingerprint(trusted.publicKeyJwk);
+        setViewingKeyUser({ name, fingerprint: fp });
+        setShowKeyInfo(true);
+      }
+    } catch (err) {
+      console.error('Failed to look up key for', name, err);
     }
   };
 
@@ -528,6 +631,18 @@ export default function Room() {
     const date = new Date(dateStr);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
+
+  // Typing indicator text
+  const typingText = (() => {
+    const users = Array.from(typingUsers);
+    if (users.length === 0) return null;
+    if (users.length === 1) return `${users[0]} is typing...`;
+    if (users.length === 2) return `${users[0]} and ${users[1]} are typing...`;
+    return `${users[0]} and ${users.length - 1} others are typing...`;
+  })();
+
+  // Queued message count
+  const queueCount = sendQueueRef.current.length;
 
   if (loading) {
     return (
@@ -577,6 +692,75 @@ export default function Room() {
         </div>
       )}
 
+      {/* Key info modal */}
+      {showKeyInfo && (
+        <div className="modal-overlay" onClick={() => { setShowKeyInfo(false); setViewingKeyUser(null); }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            {viewingKeyUser ? (
+              <>
+                <h2>{viewingKeyUser.name === displayName ? 'Your identity key' : `${viewingKeyUser.name}'s key`}</h2>
+                <p>
+                  {viewingKeyUser.name === displayName
+                    ? 'Share this fingerprint out-of-band to verify your identity with others.'
+                    : 'Compare this fingerprint with the user out-of-band to verify their identity.'}
+                </p>
+                <div className="key-fingerprint">
+                  <div className="key-fingerprint-label">Fingerprint</div>
+                  <div className="key-fingerprint-value">
+                    {formatFingerprint(viewingKeyUser.fingerprint)}
+                  </div>
+                  <div className="key-fingerprint-name">{viewingKeyUser.name}</div>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2>Your identity key</h2>
+                <p>Share this fingerprint out-of-band to verify your identity with others.</p>
+                <div className="key-fingerprint">
+                  <div className="key-fingerprint-label">Your fingerprint</div>
+                  <div className="key-fingerprint-value">
+                    {signingKeyRef.current ? formatFingerprint(signingKeyRef.current.fingerprint) : 'Not available'}
+                  </div>
+                  <div className="key-fingerprint-name">{displayName}</div>
+                </div>
+              </>
+            )}
+            <div style={{ marginTop: 'var(--spacing-lg)' }}>
+              <button className="secondary" onClick={() => { setShowKeyInfo(false); setViewingKeyUser(null); }} style={{ width: '100%' }}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Members panel */}
+      {showMembers && (
+        <div className="modal-overlay" onClick={() => setShowMembers(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Online members</h2>
+            <div className="members-list">
+              {onlineMembers.length === 0 ? (
+                <p className="empty-members">No members online</p>
+              ) : (
+                onlineMembers.map((name) => (
+                  <div key={name} className="member-item">
+                    <span className="member-dot" />
+                    <span className="member-name">{name}</span>
+                    {name === displayName && <span className="member-you">(you)</span>}
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ marginTop: 'var(--spacing-lg)' }}>
+              <button className="secondary" onClick={() => setShowMembers(false)} style={{ width: '100%' }}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="room-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -588,23 +772,28 @@ export default function Room() {
             <div className="room-code">{roomId}</div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem', marginLeft: 'auto' }}>
-            <span
-              className={`connection-status ${connectionStatus}`}
-              title={connectionStatus}
+            <button
+              className="header-btn"
+              onClick={() => setShowMembers(true)}
+              title="View online members"
             >
               {connectionStatus === 'connected'
-                ? `connected${peerCount > 1 ? ` (${peerCount})` : ''}`
+                ? `${peerCount} online`
                 : connectionStatus === 'connecting'
                 ? 'connecting...'
                 : 'disconnected'}
-            </span>
+            </button>
             {signingActive && (
-              <span className="signing-status" title="Messages are signed with your identity key">
+              <button
+                className="header-btn signing-status"
+                onClick={() => viewUserKey(displayName)}
+                title="View your identity key"
+              >
                 <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true" style={{ verticalAlign: 'middle', marginRight: '0.25rem' }}>
                   <path d="M6 1C4.34 1 3 2.34 3 4V5H2.5C2.22 5 2 5.22 2 5.5V10.5C2 10.78 2.22 11 2.5 11H9.5C9.78 11 10 10.78 10 10.5V5.5C10 5.22 9.78 5 9.5 5H9V4C9 2.34 7.66 1 6 1ZM7.5 5H4.5V4C4.5 3.17 5.17 2.5 6 2.5C6.83 2.5 7.5 3.17 7.5 4V5Z" fill="currentColor"/>
                 </svg>
                 signed
-              </span>
+              </button>
             )}
           </div>
         </div>
@@ -615,34 +804,75 @@ export default function Room() {
         {messages.map((msg) => (
           <div
             key={msg.msgId}
-            className={`message ${msg.isOwn ? 'own' : ''}`}
+            className={`message ${msg.isOwn ? 'own' : ''} ${msg.deleted ? 'deleted' : ''}`}
           >
-            <div className="message-sender">
-              {!msg.isOwn && msg.displayName}
-              <TrustIndicator status={msg.trustStatus} />
-            </div>
-            <div className={`message-text ${msg.error ? 'message-error' : ''}`}>
-              {msg.text}
-            </div>
-            <div className="message-time">{formatTime(msg.createdAt)}</div>
+            {msg.deleted ? (
+              <div className="message-text message-deleted">This message was deleted</div>
+            ) : (
+              <>
+                <div className="message-sender">
+                  {!msg.isOwn && (
+                    <button
+                      className="sender-name-btn"
+                      onClick={() => viewUserKey(msg.displayName)}
+                      title={`View ${msg.displayName}'s key`}
+                    >
+                      {msg.displayName}
+                    </button>
+                  )}
+                  {msg.trustStatus !== 'unsigned' ? (
+                    <button
+                      className="trust-btn"
+                      onClick={() => viewUserKey(msg.isOwn ? displayName : msg.displayName)}
+                      title="View key fingerprint"
+                    >
+                      <TrustIndicator status={msg.trustStatus} />
+                    </button>
+                  ) : (
+                    <TrustIndicator status={msg.trustStatus} />
+                  )}
+                  {msg.isOwn && (
+                    <button
+                      className="message-delete"
+                      onClick={() => deleteMessage(msg.msgId)}
+                      title="Delete message"
+                      aria-label="Delete message"
+                    >
+                      &times;
+                    </button>
+                  )}
+                </div>
+                <div className={`message-text ${msg.error ? 'message-error' : ''}`}>
+                  {msg.text}
+                </div>
+                <div className="message-time">{formatTime(msg.createdAt)}</div>
+              </>
+            )}
           </div>
         ))}
-        <div ref={messagesEndRef} />
+        {typingText && (
+          <div className="typing-indicator">{typingText}</div>
+        )}
       </div>
 
       {/* Message input */}
       <div className="message-input-container">
+        {queueCount > 0 && (
+          <div className="queue-indicator">
+            {queueCount} message{queueCount > 1 ? 's' : ''} queued — will send when reconnected
+          </div>
+        )}
         <form className="message-input-form" onSubmit={sendMessage}>
           <input
             type="text"
             value={messageInput}
-            onChange={(e) => setMessageInput(e.target.value)}
+            onChange={handleInputChange}
             placeholder="Type a message..."
-            disabled={connectionStatus !== 'connected' || !signingActive}
+            disabled={!signingActive}
           />
           <button
             type="submit"
-            disabled={!messageInput.trim() || connectionStatus !== 'connected' || !signingActive}
+            disabled={!messageInput.trim() || !signingActive}
           >
             Send
           </button>

@@ -680,6 +680,183 @@ button.danger:hover {
   color: var(--color-accent-hover);
 }
 
+/* Clickable sender name */
+.sender-name-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.sender-name-btn:hover {
+  text-decoration: underline;
+  background: none;
+}
+
+/* Clickable trust indicator */
+.trust-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.trust-btn:hover {
+  opacity: 0.7;
+  background: none;
+}
+
+/* Deleted message */
+.message.deleted {
+  opacity: 0.6;
+}
+
+.message-deleted {
+  font-style: italic;
+  color: var(--color-text-light);
+  font-size: 0.85rem;
+}
+
+/* Key fingerprint */
+.key-fingerprint {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-top: var(--spacing-md);
+}
+
+.key-fingerprint-label {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+  margin-bottom: var(--spacing-sm);
+}
+
+.key-fingerprint-value {
+  font-family: monospace;
+  font-size: 0.85rem;
+  word-break: break-all;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.key-fingerprint-name {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin-top: var(--spacing-sm);
+}
+
+/* Members list */
+.members-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+}
+
+.member-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+}
+
+.member-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success);
+  flex-shrink: 0;
+}
+
+.member-name {
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+
+.member-you {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+}
+
+.empty-members {
+  color: var(--color-text-light);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: var(--spacing-md);
+}
+
+/* Typing indicator */
+.typing-indicator {
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+  font-style: italic;
+  padding: var(--spacing-xs) 0;
+}
+
+/* Message delete button */
+.message-delete {
+  background: none;
+  border: none;
+  color: var(--color-text-light);
+  font-size: 1rem;
+  padding: 0 var(--spacing-xs);
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  margin-left: auto;
+}
+
+.message:hover .message-delete,
+.message-delete:focus {
+  opacity: 1;
+}
+
+.message-delete:hover {
+  color: var(--color-error);
+  background: none;
+}
+
+/* Queue indicator */
+.queue-indicator {
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+  text-align: center;
+  padding: var(--spacing-xs) 0;
+  margin-bottom: var(--spacing-xs);
+}
+
+/* Header button */
+.header-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.header-btn:hover {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .container {
