@@ -81,6 +81,7 @@ export default function Room() {
   const [displayName, setDisplayName] = useState('');
   const [showNameModal, setShowNameModal] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
+  const [peerCount, setPeerCount] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -349,6 +350,16 @@ export default function Room() {
         try {
           const data = JSON.parse(event.data);
 
+          if (data.type === 'connected') {
+            setPeerCount(data.connectionCount || 0);
+            return;
+          }
+
+          if (data.type === 'peer_count') {
+            setPeerCount(data.connectionCount || 0);
+            return;
+          }
+
           if (data.type === 'error') {
             console.error('WebSocket error:', data.message);
             if (data.code === 'name_taken') {
@@ -429,7 +440,7 @@ export default function Room() {
     e.preventDefault();
 
     const text = messageInput.trim();
-    if (!text || !room || !cryptoKey || !wsRef.current) return;
+    if (!text || !room || !cryptoKey || !wsRef.current || !signingKeyRef.current) return;
 
     const msgId = generateMsgId();
     const clientTs = Date.now();
@@ -587,7 +598,7 @@ export default function Room() {
               title={connectionStatus}
             >
               {connectionStatus === 'connected'
-                ? 'connected'
+                ? `connected${peerCount > 1 ? ` (${peerCount})` : ''}`
                 : connectionStatus === 'connecting'
                 ? 'connecting...'
                 : 'disconnected'}
@@ -632,11 +643,11 @@ export default function Room() {
             value={messageInput}
             onChange={(e) => setMessageInput(e.target.value)}
             placeholder="Type a message..."
-            disabled={connectionStatus !== 'connected'}
+            disabled={connectionStatus !== 'connected' || !signingActive}
           />
           <button
             type="submit"
-            disabled={!messageInput.trim() || connectionStatus !== 'connected'}
+            disabled={!messageInput.trim() || connectionStatus !== 'connected' || !signingActive}
           >
             Send
           </button>
