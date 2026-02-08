@@ -680,6 +680,50 @@ button.danger:hover {
   color: var(--color-accent-hover);
 }
 
+/* Clickable sender name */
+.sender-name-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.sender-name-btn:hover {
+  text-decoration: underline;
+  background: none;
+}
+
+/* Clickable trust indicator */
+.trust-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.trust-btn:hover {
+  opacity: 0.7;
+  background: none;
+}
+
+/* Deleted message */
+.message.deleted {
+  opacity: 0.6;
+}
+
+.message-deleted {
+  font-style: italic;
+  color: var(--color-text-light);
+  font-size: 0.85rem;
+}
+
 /* Key fingerprint */
 .key-fingerprint {
   background: var(--color-bg);

@@ -33,6 +33,7 @@ interface DecryptedMessage {
   createdAt: string;
   isOwn: boolean;
   error?: boolean;
+  deleted?: boolean;
   trustStatus: TrustStatus;
 }
 
@@ -101,6 +102,7 @@ export default function Room() {
   const [onlineMembers, setOnlineMembers] = useState<string[]>([]);
   const [showMembers, setShowMembers] = useState(false);
   const [showKeyInfo, setShowKeyInfo] = useState(false);
+  const [viewingKeyUser, setViewingKeyUser] = useState<{ name: string; fingerprint: string } | null>(null);
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -405,7 +407,11 @@ export default function Room() {
           }
 
           if (data.type === 'delete') {
-            setMessages((current) => current.filter((m) => m.msgId !== data.msgId));
+            setMessages((current) => current.map((m) =>
+              m.msgId === data.msgId
+                ? { ...m, text: '', deleted: true, error: false }
+                : m
+            ));
             if (roomId) removeCachedMessage(roomId, data.msgId);
             return;
           }
@@ -588,6 +594,27 @@ export default function Room() {
     // Local removal happens when we receive the delete broadcast back from the server
   };
 
+  // View a user's key fingerprint
+  const viewUserKey = async (name: string) => {
+    if (!roomId) return;
+    if (name === displayName && signingKeyRef.current) {
+      // Show own key
+      setViewingKeyUser({ name, fingerprint: signingKeyRef.current.fingerprint });
+      setShowKeyInfo(true);
+      return;
+    }
+    try {
+      const trusted = await getTrustedKey(roomId, name);
+      if (trusted) {
+        const fp = await computeKeyFingerprint(trusted.publicKeyJwk);
+        setViewingKeyUser({ name, fingerprint: fp });
+        setShowKeyInfo(true);
+      }
+    } catch (err) {
+      console.error('Failed to look up key for', name, err);
+    }
+  };
+
   // Set display name
   const handleSetDisplayName = (e: FormEvent) => {
     e.preventDefault();
@@ -667,19 +694,39 @@ export default function Room() {
 
       {/* Key info modal */}
       {showKeyInfo && (
-        <div className="modal-overlay" onClick={() => setShowKeyInfo(false)}>
+        <div className="modal-overlay" onClick={() => { setShowKeyInfo(false); setViewingKeyUser(null); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Your identity key</h2>
-            <p>Share this fingerprint out-of-band to verify your identity with others.</p>
-            <div className="key-fingerprint">
-              <div className="key-fingerprint-label">Your fingerprint</div>
-              <div className="key-fingerprint-value">
-                {signingKeyRef.current ? formatFingerprint(signingKeyRef.current.fingerprint) : 'Not available'}
-              </div>
-              <div className="key-fingerprint-name">{displayName}</div>
-            </div>
+            {viewingKeyUser ? (
+              <>
+                <h2>{viewingKeyUser.name === displayName ? 'Your identity key' : `${viewingKeyUser.name}'s key`}</h2>
+                <p>
+                  {viewingKeyUser.name === displayName
+                    ? 'Share this fingerprint out-of-band to verify your identity with others.'
+                    : 'Compare this fingerprint with the user out-of-band to verify their identity.'}
+                </p>
+                <div className="key-fingerprint">
+                  <div className="key-fingerprint-label">Fingerprint</div>
+                  <div className="key-fingerprint-value">
+                    {formatFingerprint(viewingKeyUser.fingerprint)}
+                  </div>
+                  <div className="key-fingerprint-name">{viewingKeyUser.name}</div>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2>Your identity key</h2>
+                <p>Share this fingerprint out-of-band to verify your identity with others.</p>
+                <div className="key-fingerprint">
+                  <div className="key-fingerprint-label">Your fingerprint</div>
+                  <div className="key-fingerprint-value">
+                    {signingKeyRef.current ? formatFingerprint(signingKeyRef.current.fingerprint) : 'Not available'}
+                  </div>
+                  <div className="key-fingerprint-name">{displayName}</div>
+                </div>
+              </>
+            )}
             <div style={{ marginTop: 'var(--spacing-lg)' }}>
-              <button className="secondary" onClick={() => setShowKeyInfo(false)} style={{ width: '100%' }}>
+              <button className="secondary" onClick={() => { setShowKeyInfo(false); setViewingKeyUser(null); }} style={{ width: '100%' }}>
                 Close
               </button>
             </div>
@@ -739,7 +786,7 @@ export default function Room() {
             {signingActive && (
               <button
                 className="header-btn signing-status"
-                onClick={() => setShowKeyInfo(true)}
+                onClick={() => viewUserKey(displayName)}
                 title="View your identity key"
               >
                 <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true" style={{ verticalAlign: 'middle', marginRight: '0.25rem' }}>
@@ -757,26 +804,50 @@ export default function Room() {
         {messages.map((msg) => (
           <div
             key={msg.msgId}
-            className={`message ${msg.isOwn ? 'own' : ''}`}
+            className={`message ${msg.isOwn ? 'own' : ''} ${msg.deleted ? 'deleted' : ''}`}
           >
-            <div className="message-sender">
-              {!msg.isOwn && msg.displayName}
-              <TrustIndicator status={msg.trustStatus} />
-              {msg.isOwn && (
-                <button
-                  className="message-delete"
-                  onClick={() => deleteMessage(msg.msgId)}
-                  title="Delete message"
-                  aria-label="Delete message"
-                >
-                  &times;
-                </button>
-              )}
-            </div>
-            <div className={`message-text ${msg.error ? 'message-error' : ''}`}>
-              {msg.text}
-            </div>
-            <div className="message-time">{formatTime(msg.createdAt)}</div>
+            {msg.deleted ? (
+              <div className="message-text message-deleted">This message was deleted</div>
+            ) : (
+              <>
+                <div className="message-sender">
+                  {!msg.isOwn && (
+                    <button
+                      className="sender-name-btn"
+                      onClick={() => viewUserKey(msg.displayName)}
+                      title={`View ${msg.displayName}'s key`}
+                    >
+                      {msg.displayName}
+                    </button>
+                  )}
+                  {msg.trustStatus !== 'unsigned' ? (
+                    <button
+                      className="trust-btn"
+                      onClick={() => viewUserKey(msg.isOwn ? displayName : msg.displayName)}
+                      title="View key fingerprint"
+                    >
+                      <TrustIndicator status={msg.trustStatus} />
+                    </button>
+                  ) : (
+                    <TrustIndicator status={msg.trustStatus} />
+                  )}
+                  {msg.isOwn && (
+                    <button
+                      className="message-delete"
+                      onClick={() => deleteMessage(msg.msgId)}
+                      title="Delete message"
+                      aria-label="Delete message"
+                    >
+                      &times;
+                    </button>
+                  )}
+                </div>
+                <div className={`message-text ${msg.error ? 'message-error' : ''}`}>
+                  {msg.text}
+                </div>
+                <div className="message-time">{formatTime(msg.createdAt)}</div>
+              </>
+            )}
           </div>
         ))}
         {typingText && (
