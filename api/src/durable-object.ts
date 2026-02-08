@@ -107,7 +107,8 @@ export class RecipeRoom extends DurableObject {
     }
 
     const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
+    const client = pair[0];
+    const server = pair[1];
 
     this.handleSession(server, ip);
 
@@ -123,6 +124,24 @@ export class RecipeRoom extends DurableObject {
 
     const currentCount = this.connectionsByIp.get(ip) || 0;
     this.connectionsByIp.set(ip, currentCount + 1);
+
+    // Send connection confirmation with diagnostics
+    const roomId = this.roomId || this.ctx.id.name || 'unknown';
+    ws.send(JSON.stringify({
+      type: 'connected',
+      connectionCount: this.connections.size,
+      roomId,
+    }));
+
+    // Notify all OTHER connections about the new peer count
+    this.connections.forEach((client) => {
+      if (client !== ws && client.readyState === 1) {
+        client.send(JSON.stringify({
+          type: 'peer_count',
+          connectionCount: this.connections.size,
+        }));
+      }
+    });
 
     ws.addEventListener('message', async (event) => {
       try {
@@ -141,6 +160,15 @@ export class RecipeRoom extends DurableObject {
       } else {
         this.connectionsByIp.set(ip, count - 1);
       }
+      // Notify remaining connections about updated peer count
+      this.connections.forEach((client) => {
+        if (client.readyState === 1) {
+          client.send(JSON.stringify({
+            type: 'peer_count',
+            connectionCount: this.connections.size,
+          }));
+        }
+      });
     });
 
     ws.addEventListener('error', () => {
@@ -151,6 +179,15 @@ export class RecipeRoom extends DurableObject {
       } else {
         this.connectionsByIp.set(ip, count - 1);
       }
+      // Notify remaining connections about updated peer count
+      this.connections.forEach((client) => {
+        if (client.readyState === 1) {
+          client.send(JSON.stringify({
+            type: 'peer_count',
+            connectionCount: this.connections.size,
+          }));
+        }
+      });
     });
   }
 
@@ -192,9 +229,16 @@ export class RecipeRoom extends DurableObject {
       return;
     }
 
-    // Enforce name uniqueness: if senderName and keyFingerprint are provided,
-    // verify this name belongs to (or is now claimed by) this key
-    if (msg.senderName && msg.keyFingerprint) {
+    // Enforce name uniqueness: require keyFingerprint when senderName is provided
+    if (msg.senderName) {
+      if (!msg.keyFingerprint) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          code: 'missing_fingerprint',
+          message: 'Key fingerprint is required when sending with a display name.',
+        }));
+        return;
+      }
       const claim = this.checkNameClaim(msg.senderName, msg.keyFingerprint);
       if (!claim.ok) {
         ws.send(JSON.stringify({
