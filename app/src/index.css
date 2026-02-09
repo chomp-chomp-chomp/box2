@@ -390,6 +390,16 @@ a:hover {
   color: var(--color-text-light);
 }
 
+.message-text a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+.message.own .message-text a {
+  color: var(--color-accent);
+}
+
 .message-error {
   color: var(--color-error);
   font-style: italic;

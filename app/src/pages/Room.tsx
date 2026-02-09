@@ -83,6 +83,28 @@ function TrustIndicator({ status }: { status: TrustStatus }) {
   }
 }
 
+// URL regex: matches http(s) URLs. Capturing group so split keeps matches.
+const URL_SPLIT = /(https?:\/\/[^\s<>"')\]]+)/g;
+const URL_TEST = /^https?:\/\//;
+
+function Linkified({ text }: { text: string }) {
+  const parts = text.split(URL_SPLIT);
+  if (parts.length === 1) return <>{text}</>;
+  return (
+    <>
+      {parts.map((part, i) =>
+        URL_TEST.test(part) ? (
+          <a key={i} href={part} target="_blank" rel="noopener noreferrer">
+            {part}
+          </a>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
 function formatFingerprint(fp: string): string {
   // Two lines of 16 hex chars, grouped in 4-char blocks
   const groups = fp.match(/.{1,4}/g) || [fp];
@@ -888,7 +910,7 @@ export default function Room() {
                   )}
                 </div>
                 <div className={`message-text ${msg.error ? 'message-error' : ''}`}>
-                  {msg.text}
+                  {msg.error ? msg.text : <Linkified text={msg.text} />}
                 </div>
                 <div className="message-time">{formatTime(msg.createdAt)}</div>
               </>
