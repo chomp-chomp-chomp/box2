@@ -84,7 +84,11 @@ function TrustIndicator({ status }: { status: TrustStatus }) {
 }
 
 function formatFingerprint(fp: string): string {
-  return fp.match(/.{1,4}/g)?.join(' ') || fp;
+  // Two lines of 16 hex chars, grouped in 4-char blocks
+  const groups = fp.match(/.{1,4}/g) || [fp];
+  const line1 = groups.slice(0, 4).join(' ');
+  const line2 = groups.slice(4).join(' ');
+  return line2 ? `${line1}\n${line2}` : line1;
 }
 
 export default function Room() {
@@ -615,6 +619,26 @@ export default function Room() {
     }
   };
 
+  // Copy invite link with passphrase in fragment
+  const copyInviteLink = async () => {
+    if (!roomId) return;
+    const stored = localStorage.getItem(`recipe:${roomId}`);
+    if (!stored) return;
+    const { passphrase } = JSON.parse(stored);
+    const url = `${window.location.origin}/join/${encodeURIComponent(roomId)}#${encodeURIComponent(passphrase)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // Fallback: select text in a temporary input
+      const input = document.createElement('input');
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+    }
+  };
+
   // Set display name
   const handleSetDisplayName = (e: FormEvent) => {
     e.preventDefault();
@@ -706,10 +730,18 @@ export default function Room() {
                 </p>
                 <div className="key-fingerprint">
                   <div className="key-fingerprint-label">Fingerprint</div>
-                  <div className="key-fingerprint-value">
+                  <pre className="key-fingerprint-value">
                     {formatFingerprint(viewingKeyUser.fingerprint)}
+                  </pre>
+                  <div className="key-fingerprint-footer">
+                    <span className="key-fingerprint-name">{viewingKeyUser.name}</span>
+                    <button
+                      className="small secondary"
+                      onClick={() => navigator.clipboard.writeText(viewingKeyUser.fingerprint)}
+                    >
+                      Copy
+                    </button>
                   </div>
-                  <div className="key-fingerprint-name">{viewingKeyUser.name}</div>
                 </div>
               </>
             ) : (
@@ -718,10 +750,20 @@ export default function Room() {
                 <p>Share this fingerprint out-of-band to verify your identity with others.</p>
                 <div className="key-fingerprint">
                   <div className="key-fingerprint-label">Your fingerprint</div>
-                  <div className="key-fingerprint-value">
+                  <pre className="key-fingerprint-value">
                     {signingKeyRef.current ? formatFingerprint(signingKeyRef.current.fingerprint) : 'Not available'}
+                  </pre>
+                  <div className="key-fingerprint-footer">
+                    <span className="key-fingerprint-name">{displayName}</span>
+                    {signingKeyRef.current && (
+                      <button
+                        className="small secondary"
+                        onClick={() => navigator.clipboard.writeText(signingKeyRef.current!.fingerprint)}
+                      >
+                        Copy
+                      </button>
+                    )}
                   </div>
-                  <div className="key-fingerprint-name">{displayName}</div>
                 </div>
               </>
             )}
@@ -752,7 +794,10 @@ export default function Room() {
                 ))
               )}
             </div>
-            <div style={{ marginTop: 'var(--spacing-lg)' }}>
+            <div style={{ marginTop: 'var(--spacing-lg)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+              <button onClick={copyInviteLink}>
+                Copy invite link
+              </button>
               <button className="secondary" onClick={() => setShowMembers(false)} style={{ width: '100%' }}>
                 Close
               </button>
