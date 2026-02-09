@@ -390,6 +390,16 @@ a:hover {
   color: var(--color-text-light);
 }
 
+.message-text a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+.message.own .message-text a {
+  color: var(--color-accent);
+}
+
 .message-error {
   color: var(--color-error);
   font-style: italic;
@@ -744,16 +754,24 @@ button.danger:hover {
 
 .key-fingerprint-value {
   font-family: monospace;
-  font-size: 0.85rem;
-  word-break: break-all;
-  line-height: 1.6;
+  font-size: 0.95rem;
+  line-height: 1.8;
   color: var(--color-text);
+  margin: 0;
+  white-space: pre;
+  letter-spacing: 0.05em;
+}
+
+.key-fingerprint-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--spacing-sm);
 }
 
 .key-fingerprint-name {
   font-size: 0.8rem;
   color: var(--color-text-muted);
-  margin-top: var(--spacing-sm);
 }
 
 /* Members list */
@@ -789,6 +807,29 @@ button.danger:hover {
 .member-you {
   font-size: 0.75rem;
   color: var(--color-text-light);
+}
+
+/* Invite QR code */
+.invite-qr {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--color-border);
+  text-align: center;
+}
+
+.invite-qr-code {
+  display: inline-block;
+  padding: var(--spacing-md);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+}
+
+.invite-qr-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+  margin-top: var(--spacing-sm);
 }
 
 .empty-members {

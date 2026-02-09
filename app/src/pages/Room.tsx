@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, FormEvent } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { QRCodeSVG } from 'qrcode.react';
 import { getRoom, getHistory, getWebSocketUrl, RoomInfo, HistoryMessage } from '../utils/api';
 import { saveRecentRoom } from '../utils/recentRooms';
 import { getCachedMessages, setCachedMessages, appendCachedMessage, removeCachedMessage } from '../utils/messageCache';
@@ -83,8 +84,34 @@ function TrustIndicator({ status }: { status: TrustStatus }) {
   }
 }
 
+// URL regex: matches http(s) URLs. Capturing group so split keeps matches.
+const URL_SPLIT = /(https?:\/\/[^\s<>"')\]]+)/g;
+const URL_TEST = /^https?:\/\//;
+
+function Linkified({ text }: { text: string }) {
+  const parts = text.split(URL_SPLIT);
+  if (parts.length === 1) return <>{text}</>;
+  return (
+    <>
+      {parts.map((part, i) =>
+        URL_TEST.test(part) ? (
+          <a key={i} href={part} target="_blank" rel="noopener noreferrer">
+            {part}
+          </a>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
 function formatFingerprint(fp: string): string {
-  return fp.match(/.{1,4}/g)?.join(' ') || fp;
+  // Two lines of 16 hex chars, grouped in 4-char blocks
+  const groups = fp.match(/.{1,4}/g) || [fp];
+  const line1 = groups.slice(0, 4).join(' ');
+  const line2 = groups.slice(4).join(' ');
+  return line2 ? `${line1}\n${line2}` : line1;
 }
 
 export default function Room() {
@@ -615,6 +642,31 @@ export default function Room() {
     }
   };
 
+  // Generate invite URL (path-based so it survives messaging apps that strip fragments)
+  const getInviteUrl = useCallback(() => {
+    if (!roomId) return null;
+    const stored = localStorage.getItem(`recipe:${roomId}`);
+    if (!stored) return null;
+    const { passphrase } = JSON.parse(stored);
+    return `${window.location.origin}/join/${encodeURIComponent(roomId)}/${encodeURIComponent(passphrase)}`;
+  }, [roomId]);
+
+  // Copy invite link
+  const copyInviteLink = async () => {
+    const url = getInviteUrl();
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      const input = document.createElement('input');
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+    }
+  };
+
   // Set display name
   const handleSetDisplayName = (e: FormEvent) => {
     e.preventDefault();
@@ -706,10 +758,18 @@ export default function Room() {
                 </p>
                 <div className="key-fingerprint">
                   <div className="key-fingerprint-label">Fingerprint</div>
-                  <div className="key-fingerprint-value">
+                  <pre className="key-fingerprint-value">
                     {formatFingerprint(viewingKeyUser.fingerprint)}
+                  </pre>
+                  <div className="key-fingerprint-footer">
+                    <span className="key-fingerprint-name">{viewingKeyUser.name}</span>
+                    <button
+                      className="small secondary"
+                      onClick={() => navigator.clipboard.writeText(viewingKeyUser.fingerprint)}
+                    >
+                      Copy
+                    </button>
                   </div>
-                  <div className="key-fingerprint-name">{viewingKeyUser.name}</div>
                 </div>
               </>
             ) : (
@@ -718,10 +778,20 @@ export default function Room() {
                 <p>Share this fingerprint out-of-band to verify your identity with others.</p>
                 <div className="key-fingerprint">
                   <div className="key-fingerprint-label">Your fingerprint</div>
-                  <div className="key-fingerprint-value">
+                  <pre className="key-fingerprint-value">
                     {signingKeyRef.current ? formatFingerprint(signingKeyRef.current.fingerprint) : 'Not available'}
+                  </pre>
+                  <div className="key-fingerprint-footer">
+                    <span className="key-fingerprint-name">{displayName}</span>
+                    {signingKeyRef.current && (
+                      <button
+                        className="small secondary"
+                        onClick={() => navigator.clipboard.writeText(signingKeyRef.current!.fingerprint)}
+                      >
+                        Copy
+                      </button>
+                    )}
                   </div>
-                  <div className="key-fingerprint-name">{displayName}</div>
                 </div>
               </>
             )}
@@ -752,7 +822,24 @@ export default function Room() {
                 ))
               )}
             </div>
-            <div style={{ marginTop: 'var(--spacing-lg)' }}>
+            {getInviteUrl() && (
+              <div className="invite-qr">
+                <div className="invite-qr-code">
+                  <QRCodeSVG
+                    value={getInviteUrl()!}
+                    size={160}
+                    bgColor="transparent"
+                    fgColor="currentColor"
+                    level="M"
+                  />
+                </div>
+                <p className="invite-qr-hint">Scan to join this recipe</p>
+              </div>
+            )}
+            <div style={{ marginTop: 'var(--spacing-md)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+              <button onClick={copyInviteLink}>
+                Copy invite link
+              </button>
               <button className="secondary" onClick={() => setShowMembers(false)} style={{ width: '100%' }}>
                 Close
               </button>
@@ -843,7 +930,7 @@ export default function Room() {
                   )}
                 </div>
                 <div className={`message-text ${msg.error ? 'message-error' : ''}`}>
-                  {msg.text}
+                  {msg.error ? msg.text : <Linkified text={msg.text} />}
                 </div>
                 <div className="message-time">{formatTime(msg.createdAt)}</div>
               </>

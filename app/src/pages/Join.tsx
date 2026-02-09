@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getRoom } from '../utils/api';
 
 export default function Join() {
-  const { roomId } = useParams<{ roomId: string }>();
+  const { roomId, passphrase: pathPassphrase } = useParams<{ roomId: string; passphrase?: string }>();
   const navigate = useNavigate();
   const [error, setError] = useState('');
 
@@ -13,8 +13,11 @@ export default function Join() {
       return;
     }
 
-    // Read passphrase from URL fragment (never sent to server)
-    const passphrase = window.location.hash.slice(1);
+    // Try path param first (survives messaging apps), then fragment (legacy)
+    const passphrase = pathPassphrase
+      ? decodeURIComponent(pathPassphrase)
+      : decodeURIComponent(window.location.hash.slice(1));
+
     if (!passphrase) {
       setError('This link is missing the passphrase. Ask the person who shared it for a new one.');
       return;
@@ -33,8 +36,8 @@ export default function Join() {
           })
         );
 
-        // Clear the fragment from URL history before navigating
-        window.history.replaceState(null, '', window.location.pathname);
+        // Clear the passphrase from URL history before navigating
+        window.history.replaceState(null, '', `/join/${encodeURIComponent(roomId)}`);
 
         navigate(`/room/${room.roomId}`, { replace: true });
       } catch {
@@ -43,7 +46,7 @@ export default function Join() {
     };
 
     joinRoom();
-  }, [roomId, navigate]);
+  }, [roomId, pathPassphrase, navigate]);
 
   if (error) {
     return (
