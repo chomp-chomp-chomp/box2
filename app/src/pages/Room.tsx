@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, FormEvent } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { QRCodeSVG } from 'qrcode.react';
 import { getRoom, getHistory, getWebSocketUrl, RoomInfo, HistoryMessage } from '../utils/api';
 import { saveRecentRoom } from '../utils/recentRooms';
 import { getCachedMessages, setCachedMessages, appendCachedMessage, removeCachedMessage } from '../utils/messageCache';
@@ -641,17 +642,22 @@ export default function Room() {
     }
   };
 
-  // Copy invite link with passphrase in fragment
-  const copyInviteLink = async () => {
-    if (!roomId) return;
+  // Generate invite URL (path-based so it survives messaging apps that strip fragments)
+  const getInviteUrl = useCallback(() => {
+    if (!roomId) return null;
     const stored = localStorage.getItem(`recipe:${roomId}`);
-    if (!stored) return;
+    if (!stored) return null;
     const { passphrase } = JSON.parse(stored);
-    const url = `${window.location.origin}/join/${encodeURIComponent(roomId)}#${encodeURIComponent(passphrase)}`;
+    return `${window.location.origin}/join/${encodeURIComponent(roomId)}/${encodeURIComponent(passphrase)}`;
+  }, [roomId]);
+
+  // Copy invite link
+  const copyInviteLink = async () => {
+    const url = getInviteUrl();
+    if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
     } catch {
-      // Fallback: select text in a temporary input
       const input = document.createElement('input');
       input.value = url;
       document.body.appendChild(input);
@@ -816,7 +822,21 @@ export default function Room() {
                 ))
               )}
             </div>
-            <div style={{ marginTop: 'var(--spacing-lg)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+            {getInviteUrl() && (
+              <div className="invite-qr">
+                <div className="invite-qr-code">
+                  <QRCodeSVG
+                    value={getInviteUrl()!}
+                    size={160}
+                    bgColor="transparent"
+                    fgColor="currentColor"
+                    level="M"
+                  />
+                </div>
+                <p className="invite-qr-hint">Scan to join this recipe</p>
+              </div>
+            )}
+            <div style={{ marginTop: 'var(--spacing-md)', display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
               <button onClick={copyInviteLink}>
                 Copy invite link
               </button>

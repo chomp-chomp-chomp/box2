@@ -809,6 +809,29 @@ button.danger:hover {
   color: var(--color-text-light);
 }
 
+/* Invite QR code */
+.invite-qr {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--color-border);
+  text-align: center;
+}
+
+.invite-qr-code {
+  display: inline-block;
+  padding: var(--spacing-md);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+}
+
+.invite-qr-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+  margin-top: var(--spacing-sm);
+}
+
 .empty-members {
   color: var(--color-text-light);
   font-size: 0.85rem;
